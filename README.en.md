@@ -2,11 +2,11 @@
 
 English · [简体中文](./README.md)
 
-[![Pi](https://img.shields.io/badge/Pi-%3E%3D0.82.0-6f42c1)](https://github.com/badlogic/pi-mono)
+[![Pi](https://img.shields.io/badge/Pi-%3E%3D0.82.0-6f42c1)](https://github.com/earendil-works/pi)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
 [![Status](https://img.shields.io/badge/status-0.1.0--dev-orange.svg)](https://github.com/Qihuanxishini/pi-model-manager)
 
-A TUI model and provider manager for [Pi](https://github.com/badlogic/pi-mono). It keeps Pi's native `models.json` as the single source of truth for model configuration while adding provider/model editing, client-header identities, proxy routing, and protocol compatibility controls.
+A TUI model and provider manager for [Pi](https://github.com/earendil-works/pi). It keeps Pi's native `models.json` as the single source of truth for model configuration while adding provider/model editing, client-header identities, proxy routing, and protocol compatibility controls.
 
 > **Development status:** the current version is `0.1.0-dev` and requires Pi `>=0.82.0`. Configuration and UI details may still change.
 

@@ -2,11 +2,11 @@
 
 [English](./README.en.md) · 简体中文
 
-[![Pi](https://img.shields.io/badge/Pi-%3E%3D0.82.0-6f42c1)](https://github.com/badlogic/pi-mono)
+[![Pi](https://img.shields.io/badge/Pi-%3E%3D0.82.0-6f42c1)](https://github.com/earendil-works/pi)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
 [![Status](https://img.shields.io/badge/status-0.1.0--dev-orange.svg)](https://github.com/Qihuanxishini/pi-model-manager)
 
-一个面向 [Pi](https://github.com/badlogic/pi-mono) 的 TUI 模型与接入管理扩展。它以 Pi 原生 `models.json` 为模型配置的唯一权威来源，并提供接入/模型编辑、请求头身份、代理路由和协议兼容配置。
+一个面向 [Pi](https://github.com/earendil-works/pi) 的 TUI 模型与接入管理扩展。它以 Pi 原生 `models.json` 为模型配置的唯一权威来源，并提供接入/模型编辑、请求头身份、代理路由和协议兼容配置。
 
 > **开发状态：** 当前版本为 `0.1.0-dev`，要求 Pi `>=0.82.0`。配置格式和交互仍可能调整。
 
