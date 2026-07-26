@@ -1,0 +1,80 @@
+// 4 种 API 协议的默认预设。新建接入/模型时用，便于一键填好常用字段。
+
+import type { ApiKind, ModelInputKind } from "../types.ts";
+
+export interface ProviderPreset {
+	api: ApiKind;
+	label: string;
+	shortLabel: string;
+	defaultProviderName: string;
+	baseUrl: string;
+	apiKey: string;
+	authHeader: boolean;
+	contextWindow: number;
+	maxTokens: number;
+	inputKinds: ModelInputKind[];
+	defaultReasoning: boolean;
+}
+
+export const PROVIDER_PRESETS: ProviderPreset[] = [
+	{
+		api: "openai-responses",
+		label: "OpenAI Responses — 标准 instructions / input",
+		shortLabel: "OpenAI Responses",
+		defaultProviderName: "openai-responses",
+		baseUrl: "https://api.openai.com/v1",
+		apiKey: "$OPENAI_API_KEY",
+		authHeader: false,
+		contextWindow: 200000,
+		maxTokens: 64000,
+		inputKinds: ["text", "image"],
+		defaultReasoning: true,
+	},
+	{
+		api: "openai-completions",
+		label: "OpenAI Chat Completions — 通用 OpenAI 兼容",
+		shortLabel: "OpenAI Chat",
+		defaultProviderName: "openai-chat",
+		baseUrl: "https://api.openai.com/v1",
+		apiKey: "$OPENAI_API_KEY",
+		authHeader: false,
+		contextWindow: 200000,
+		maxTokens: 64000,
+		inputKinds: ["text", "image"],
+		defaultReasoning: true,
+	},
+	{
+		api: "anthropic-messages",
+		label: "Anthropic Messages — Claude thinking",
+		shortLabel: "Anthropic Messages",
+		defaultProviderName: "anthropic",
+		baseUrl: "https://api.anthropic.com",
+		apiKey: "$ANTHROPIC_API_KEY",
+		authHeader: false,
+		contextWindow: 200000,
+		maxTokens: 64000,
+		inputKinds: ["text", "image"],
+		defaultReasoning: true,
+	},
+	{
+		api: "google-generative-ai",
+		label: "Google Generative AI — Gemini thinking",
+		shortLabel: "Google Generative AI",
+		defaultProviderName: "google",
+		baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+		apiKey: "$GEMINI_API_KEY",
+		authHeader: false,
+		contextWindow: 1048576,
+		maxTokens: 65536,
+		inputKinds: ["text", "image"],
+		defaultReasoning: true,
+	},
+];
+
+export function findPresetForApi(api: ApiKind | undefined): ProviderPreset {
+	return PROVIDER_PRESETS.find((preset) => preset.api === api) ?? PROVIDER_PRESETS[0]!;
+}
+
+export function getProtocolDisplayName(api: ApiKind): string {
+	return findPresetForApi(api).shortLabel;
+}

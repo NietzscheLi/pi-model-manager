@@ -1,0 +1,82 @@
+// pi-model-manager 主入口
+//
+// factory 阶段（pi 会等待）读取配置并注册模型 catalog，但不启动长生命周期本地代理。
+// session_start 再激活完整 provider transport，session_shutdown 幂等关闭代理服务。
+//
+// models.json 是模型定义唯一来源；state.json 只保存请求头 profile、抓包缓存、service_tier 等插件私有元数据。
+// 启动期通知用 session_start 事件 + ctx.ui.notify（factory 期没有 ctx）。
+//
+// 命令：/model-manager → TUI 面板
+
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { formatUnknownError } from "./common.ts";
+import { resetClaudeCodeMetadataSession } from "./claude-code-compat.ts";
+import { closeLocalProxyServer } from "./local-proxy-service.ts";
+import { registerAllFromState, registerCatalogFromState } from "./provider-registrar.ts";
+import { createRequestPipeline } from "./request-pipeline.ts";
+import { createEmptyState, readState } from "./state-store.ts";
+import { runDashboard } from "./tui/dashboard.ts";
+
+interface StartupSummary {
+	startupErrors: string[];
+}
+
+export default async function modelManagerExtension(pi: ExtensionAPI): Promise<void> {
+	const summary: StartupSummary = { startupErrors: [] };
+
+	// ---- 1. 读原生模型配置 + 插件元数据 ----
+	try {
+		const stateForStartup = await readState().catch((error) => {
+			summary.startupErrors.push(`读取 models.json/state.json 失败：${formatUnknownError(error)}（本次启动仅使用内存空配置，不覆盖原文件）`);
+			return createEmptyState();
+		});
+		for (const warning of await registerCatalogFromState(pi, stateForStartup)) {
+			summary.startupErrors.push(`注册模型目录失败：${warning}`);
+		}
+	} catch (error) {
+		summary.startupErrors.push(`读取/注册模型配置失败：${formatUnknownError(error)}`);
+	}
+
+	// ---- 2. session_start 激活 transport 并汇报 ----
+	let notified = false;
+	const requestPipeline = createRequestPipeline();
+	pi.on("session_start", async (event, ctx) => {
+		resetClaudeCodeMetadataSession();
+		const transportErrors: string[] = [];
+		try {
+			const currentState = await readState();
+			for (const warning of await registerAllFromState(pi, currentState)) {
+				transportErrors.push(`激活模型接入失败：${warning}`);
+			}
+		} catch (error) {
+			transportErrors.push(`读取或激活模型配置失败：${formatUnknownError(error)}`);
+		}
+
+		if (event.reason === "startup" && !notified) {
+			notified = true;
+			for (const error of summary.startupErrors) {
+				ctx.ui.notify(`[pi-model-manager] ${error}`, "error");
+			}
+		}
+		for (const error of transportErrors) {
+			ctx.ui.notify(`[pi-model-manager] ${error}`, "error");
+		}
+	});
+
+	pi.on("before_provider_request", async (event, ctx) => requestPipeline.transform(event.payload, ctx));
+	pi.on("session_shutdown", async () => {
+		await closeLocalProxyServer();
+	});
+
+	// ---- 3. 命令：/model-manager → TUI 面板 ----
+	pi.registerCommand("model-manager", {
+		description: "模型接入与请求配置",
+		handler: async (_args, ctx) => {
+			if (ctx.mode !== "tui") {
+				ctx.ui.notify("/model-manager 需要 TUI 交互模式", "error");
+				return;
+			}
+			await runDashboard(pi, ctx);
+		},
+	});
+}
