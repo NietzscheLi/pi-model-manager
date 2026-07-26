@@ -3,13 +3,37 @@
 [English](./README.en.md) · 简体中文
 
 [![Pi](https://img.shields.io/badge/Pi-%3E%3D0.82.0-6f42c1)](https://github.com/earendil-works/pi)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
-[![Status](https://img.shields.io/badge/status-0.1.0--dev-orange.svg)](https://github.com/Qihuanxishini/pi-model-manager)
+[![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](./LICENSE)
+[![Version](https://img.shields.io/badge/version-0.1.0-2f81f7.svg)](https://www.npmjs.com/package/pi-model-manager)
 
 一个面向 [Pi](https://github.com/earendil-works/pi) 的 TUI 模型与接入管理扩展。它以 Pi 原生 `models.json` 为模型配置的唯一权威来源，并提供接入/模型编辑、请求头身份、代理路由和协议兼容配置。
 
-> **开发状态：** 当前版本为 `0.1.0-dev`，要求 Pi `>=0.82.0`。配置格式和交互仍可能调整。
+> 当前稳定版为 `0.1.0`，要求 Pi `>=0.82.0`。
 
+## 界面预览
+
+![pi-model-manager 界面总览](https://raw.githubusercontent.com/Qihuanxishini/pi-model-manager/main/assets/pi-model-manager-preview.png)
+
+<details>
+<summary>查看四张完整截图</summary>
+
+### 接入配置
+
+![接入配置](https://raw.githubusercontent.com/Qihuanxishini/pi-model-manager/main/assets/screenshots/provider-setup.png)
+
+### 模型发现
+
+![模型发现](https://raw.githubusercontent.com/Qihuanxishini/pi-model-manager/main/assets/screenshots/model-discovery.png)
+
+### 接入与模型总览
+
+![接入与模型总览](https://raw.githubusercontent.com/Qihuanxishini/pi-model-manager/main/assets/screenshots/provider-models.png)
+
+### 模型能力
+
+![模型能力](https://raw.githubusercontent.com/Qihuanxishini/pi-model-manager/main/assets/screenshots/model-editor.png)
+
+</details>
 ## 功能
 
 - 在 `/model-manager` TUI 中新增、编辑和删除接入与模型。
@@ -45,7 +69,7 @@ pi update --extensions
 
 ### 从 npm 安装
 
-npm 包名已预留为 `pi-model-manager`，但当前开发版本尚未发布到 registry。发布后可使用：
+`pi-model-manager` 已发布为公开 npm 包：
 
 ```bash
 pi install npm:pi-model-manager
@@ -177,6 +201,10 @@ npm pack --dry-run
 
 请通过 [GitHub Issues](https://github.com/Qihuanxishini/pi-model-manager/issues) 提交可复现的问题。报告配置问题时，请删除 API key、认证头、代理凭据和私有 endpoint。
 
+## 致谢
+
+感谢 [LINUX DO](https://linux.do/) 社区的讨论、分享和反馈。
+
 ## 许可证
 
-[MIT](./LICENSE)
+`v0.1.0` 及后续官方版本采用 [GNU Affero General Public License v3.0 only](./LICENSE)。分发修改版本时必须公开对应源码、继续使用 AGPL-3.0，并明确标注改动；修改版不得冒充官方发行。详见 [NOTICE](./NOTICE)。

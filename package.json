@@ -1,10 +1,11 @@
 {
   "name": "pi-model-manager",
-  "version": "0.1.0-dev",
+  "version": "0.1.0",
   "description": "A TUI model and provider manager for Pi with native models.json persistence, request-header profiles, proxy routing, and protocol compatibility.",
   "type": "module",
   "main": "./index.ts",
   "files": [
+    "NOTICE",
     "README.en.md",
     "index.ts",
     "state-store.ts",
@@ -46,7 +47,7 @@
     "anthropic"
   ],
   "author": "Qihuanxishini",
-  "license": "MIT",
+  "license": "AGPL-3.0-only",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Qihuanxishini/pi-model-manager.git"
@@ -58,7 +59,8 @@
   "pi": {
     "extensions": [
       "./index.ts"
-    ]
+    ],
+    "image": "https://raw.githubusercontent.com/Qihuanxishini/pi-model-manager/main/assets/pi-model-manager-preview.png"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": ">=0.82.0",

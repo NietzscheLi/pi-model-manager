@@ -3,13 +3,37 @@
 English · [简体中文](./README.md)
 
 [![Pi](https://img.shields.io/badge/Pi-%3E%3D0.82.0-6f42c1)](https://github.com/earendil-works/pi)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
-[![Status](https://img.shields.io/badge/status-0.1.0--dev-orange.svg)](https://github.com/Qihuanxishini/pi-model-manager)
+[![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](./LICENSE)
+[![Version](https://img.shields.io/badge/version-0.1.0-2f81f7.svg)](https://www.npmjs.com/package/pi-model-manager)
 
 A TUI model and provider manager for [Pi](https://github.com/earendil-works/pi). It keeps Pi's native `models.json` as the single source of truth for model configuration while adding provider/model editing, client-header identities, proxy routing, and protocol compatibility controls.
 
-> **Development status:** the current version is `0.1.0-dev` and requires Pi `>=0.82.0`. Configuration and UI details may still change.
+> The current stable version is `0.1.0` and requires Pi `>=0.82.0`.
 
+## Interface preview
+
+![pi-model-manager interface overview](https://raw.githubusercontent.com/Qihuanxishini/pi-model-manager/main/assets/pi-model-manager-preview.png)
+
+<details>
+<summary>View all four full-size screenshots</summary>
+
+### Provider setup
+
+![Provider setup](https://raw.githubusercontent.com/Qihuanxishini/pi-model-manager/main/assets/screenshots/provider-setup.png)
+
+### Model discovery
+
+![Model discovery](https://raw.githubusercontent.com/Qihuanxishini/pi-model-manager/main/assets/screenshots/model-discovery.png)
+
+### Provider and model overview
+
+![Provider and model overview](https://raw.githubusercontent.com/Qihuanxishini/pi-model-manager/main/assets/screenshots/provider-models.png)
+
+### Model capabilities
+
+![Model capabilities](https://raw.githubusercontent.com/Qihuanxishini/pi-model-manager/main/assets/screenshots/model-editor.png)
+
+</details>
 ## Features
 
 - Create, edit, and delete providers and models from the `/model-manager` TUI.
@@ -45,7 +69,7 @@ pi update --extensions
 
 ### Install from npm
 
-The intended npm package name is `pi-model-manager`, but this development version has not been published to the registry yet. After publication, install it with:
+`pi-model-manager` is published as a public npm package:
 
 ```bash
 pi install npm:pi-model-manager
@@ -173,6 +197,10 @@ npm pack --dry-run
 
 Open a reproducible report in [GitHub Issues](https://github.com/Qihuanxishini/pi-model-manager/issues). Remove API keys, authentication headers, proxy credentials, and private endpoints before sharing configuration or logs.
 
+## Acknowledgements
+
+Thanks to the [LINUX DO](https://linux.do/) community for discussion, sharing, and feedback.
+
 ## License
 
-[MIT](./LICENSE)
+Official releases from `v0.1.0` onward are licensed under the [GNU Affero General Public License v3.0 only](./LICENSE). Modified distributions must provide the corresponding source, remain under AGPL-3.0, and identify their changes; they must not represent themselves as official releases. See [NOTICE](./NOTICE).
