@@ -8,6 +8,7 @@ import http, { type IncomingHttpHeaders, type IncomingMessage, type ServerRespon
 import https from "node:https";
 import { HttpProxyAgent } from "http-proxy-agent";
 import { HttpsProxyAgent } from "https-proxy-agent";
+import { redactSensitiveText, redactUrlForDisplay } from "./sensitive-redaction.ts";
 import type { StoredProvider } from "./types.ts";
 import { DEFAULT_PROVIDER_HTTP_PROXY_URL } from "./types.ts";
 
@@ -25,6 +26,7 @@ const ROUTES = new Map<string, ProviderProxyRoute>();
 let server: http.Server | undefined;
 let listenPromise: Promise<number> | undefined;
 let listenPort: number | undefined;
+let closingPromise: Promise<void> | undefined;
 let temporaryRouteSequence = 0;
 
 const HOP_BY_HOP_HEADERS = new Set([
@@ -44,6 +46,18 @@ function trimTrailingSlashes(value: string): string {
 
 function normalizeHttpProxyUrl(proxyUrl: string | undefined): string {
 	return proxyUrl?.trim() || DEFAULT_PROVIDER_HTTP_PROXY_URL;
+}
+
+function parseHttpProxyUrl(proxyUrl: string | undefined): URL {
+	const normalized = normalizeHttpProxyUrl(proxyUrl);
+	let parsed: URL;
+	try {
+		parsed = new URL(normalized);
+	} catch {
+		throw new Error(`代理地址无效：${redactUrlForDisplay(normalized)}`);
+	}
+	ensureSupportedProxyProtocol(parsed);
+	return parsed;
 }
 
 export function isProviderHttpProxyEnabled(provider: StoredProvider): boolean {
@@ -91,16 +105,19 @@ function pipeResponse(upstreamResponse: IncomingMessage, response: ServerRespons
 
 
 function formatProxyError(error: unknown): string {
+	let message: string;
 	if (error instanceof Error) {
-		const message = error.message.trim();
-		if (message) return message;
-		const cause = (error as Error & { code?: string }).code;
-		if (cause) return `代理请求失败：${cause}`;
-		if (error.stack?.trim()) return error.stack.trim().split("\n", 1)[0] ?? "未知代理错误";
-		return `${error.name || "Error"}（无错误消息）`;
+		message = error.message.trim();
+		if (!message) {
+			const code = (error as Error & { code?: string }).code;
+			message = code
+				? `代理请求失败：${code}`
+				: error.stack?.trim().split("\n", 1)[0] ?? `${error.name || "Error"}（无错误消息）`;
+		}
+	} else {
+		message = String(error).trim() || "未知代理错误";
 	}
-	const message = String(error).trim();
-	return message || "未知代理错误";
+	return redactSensitiveText(message);
 }
 
 function writeProxyError(response: ServerResponse, error: unknown): void {
@@ -220,32 +237,57 @@ function handleRequest(request: IncomingMessage, response: ServerResponse): void
 	})();
 }
 
+function clearServerState(expected: http.Server): void {
+	if (server !== expected) return;
+	server = undefined;
+	listenPromise = undefined;
+	listenPort = undefined;
+}
+
 async function ensureServer(): Promise<number> {
+	if (closingPromise) throw new Error("本地代理服务正在关闭，请稍后重试");
 	if (listenPort !== undefined) return listenPort;
 	if (listenPromise) return listenPromise;
-	server = http.createServer(handleRequest);
-	listenPromise = new Promise((resolve, reject) => {
-		server!.once("error", reject);
-		server!.listen(0, "127.0.0.1", () => {
-			const address = server!.address();
+
+	const nextServer = http.createServer(handleRequest);
+	const pendingListen = new Promise<number>((resolve, reject) => {
+		const rejectListen = (error: Error) => reject(error);
+		nextServer.once("error", rejectListen);
+		nextServer.listen(0, "127.0.0.1", () => {
+			const address = nextServer.address();
 			if (!address || typeof address === "string") {
+				nextServer.off("error", rejectListen);
 				reject(new Error("本地代理转发服务监听地址异常"));
 				return;
 			}
-			listenPort = address.port;
-			server!.off("error", reject);
-			server!.unref();
+			nextServer.off("error", rejectListen);
+			nextServer.unref();
 			resolve(address.port);
 		});
 	});
-	return listenPromise;
+	server = nextServer;
+	listenPromise = pendingListen;
+	try {
+		const port = await pendingListen;
+		if (server === nextServer) listenPort = port;
+		return port;
+	} catch (error) {
+		clearServerState(nextServer);
+		if (nextServer.listening) nextServer.close();
+		throw error;
+	}
+}
+
+async function ensureServerForRoute(): Promise<number> {
+	const port = await ensureServer();
+	if (closingPromise) throw new Error("本地代理服务正在关闭，请稍后重试");
+	return port;
 }
 
 export async function getLocalProxyBaseUrl(routeId: string, upstreamRuntimeBaseUrl: string, proxyUrl: string): Promise<string> {
 	const upstream = new URL(upstreamRuntimeBaseUrl);
-	const proxy = new URL(normalizeHttpProxyUrl(proxyUrl));
-	ensureSupportedProxyProtocol(proxy);
-	const port = await ensureServer();
+	const proxy = parseHttpProxyUrl(proxyUrl);
+	const port = await ensureServerForRoute();
 	ROUTES.set(routeId, {
 		upstreamOrigin: upstream.origin,
 		proxyUrl: proxy.toString(),
@@ -260,9 +302,8 @@ export async function openTemporaryLocalProxyRoute(
 	proxyUrl: string,
 ): Promise<TemporaryLocalProxyRoute> {
 	const upstream = new URL(upstreamUrl);
-	const proxy = new URL(normalizeHttpProxyUrl(proxyUrl));
-	ensureSupportedProxyProtocol(proxy);
-	const port = await ensureServer();
+	const proxy = parseHttpProxyUrl(proxyUrl);
+	const port = await ensureServerForRoute();
 	const routeId = `${providerId}/model-list/${++temporaryRouteSequence}`;
 	const route = { upstreamOrigin: upstream.origin, proxyUrl: proxy.toString() };
 	ROUTES.set(routeId, route);
@@ -300,14 +341,36 @@ export function removeProviderLocalProxyRoutes(providerId: string): void {
 	}
 }
 
-export async function closeLocalProxyServer(): Promise<void> {
+async function closeServerLifecycle(): Promise<void> {
 	ROUTES.clear();
-	listenPromise = undefined;
-	listenPort = undefined;
+	const pendingListen = listenPromise;
+	if (pendingListen) {
+		try {
+			await pendingListen;
+		} catch {
+			// 启动失败路径已经清理对应 server 状态。
+		}
+	}
 	const current = server;
-	server = undefined;
 	if (!current) return;
-	await new Promise<void>((resolve, reject) => {
-		current.close((error) => error ? reject(error) : resolve());
-	});
+	try {
+		if (current.listening) {
+			await new Promise<void>((resolve, reject) => {
+				current.close((error) => error ? reject(error) : resolve());
+			});
+		}
+	} finally {
+		clearServerState(current);
+	}
+}
+
+export async function closeLocalProxyServer(): Promise<void> {
+	if (closingPromise) return closingPromise;
+	const operation = closeServerLifecycle();
+	closingPromise = operation;
+	try {
+		await operation;
+	} finally {
+		if (closingPromise === operation) closingPromise = undefined;
+	}
 }

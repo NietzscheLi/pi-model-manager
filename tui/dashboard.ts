@@ -37,9 +37,9 @@ import { editModel } from "./editor-model.ts";
 import { editProvider } from "./editor-provider.ts";
 import { showPersistentShortcutMenu, type MenuCursor } from "./persistent-menu.ts";
 import {
-	PROVIDER_CONSOLE_HEADER,
 	formatModelListHeader,
 	formatModelListRow,
+	formatProviderConsoleHeader,
 	formatProviderConsoleRow,
 	formatProviderDetailLines,
 	formatProviderEndpointLine,
@@ -58,8 +58,9 @@ interface ProviderMenuRow {
 	label: string;
 }
 
-function buildRows(document: StateDocument): DashboardRow[] {
+function buildRows(document: StateDocument, builtInProviderIds: ReadonlySet<string>): DashboardRow[] {
 	return Object.keys(document.providers)
+		.filter((providerId) => !builtInProviderIds.has(providerId))
 		.sort((a, b) => a.localeCompare(b))
 		.map((providerId) => ({
 			providerId,
@@ -249,7 +250,11 @@ async function showProviderMenu(pi: ExtensionAPI, ctx: ExtensionCommandContext, 
 					formatProviderSummaryLine(currentProvider, state.requestHeaderProfiles),
 					formatProviderEndpointLine(currentProvider),
 				],
-				tableHeader: formatModelListHeader(currentProvider),
+				tableHeader: (width) => formatModelListHeader(currentProvider, width),
+				formatRow: (menuRow, width) => {
+					const row = rows[Number.parseInt(menuRow.id, 10)];
+					return row ? formatModelListRow(currentProvider, row.model, width) : menuRow.label;
+				},
 				visibleRows: Math.min(12, Math.max(1, rows.length)),
 				footer: "↑↓ 选择   Enter 编辑模型   a 添加模型   e 编辑接入   d 删除模型   Esc 返回",
 				emptyLabel: "暂无模型；按 a 添加第一个模型",
@@ -323,8 +328,9 @@ export async function runDashboard(pi: ExtensionAPI, ctx: ExtensionCommandContex
 	const cursor: MenuCursor = { index: 0 };
 	while (true) {
 		const state = await readState();
-		const rows = buildRows(state);
-		const modelCount = Object.values(state.providers).reduce((sum, provider) => sum + provider.models.length, 0);
+		const builtInProviderIds = await getBuiltinProviderIds();
+		const rows = buildRows(state, builtInProviderIds);
+		const modelCount = rows.reduce((sum, row) => sum + (state.providers[row.providerId]?.models.length ?? 0), 0);
 		const profileCount = Object.keys(state.requestHeaderProfiles).length;
 		const captureCount = Object.keys(state.clientHeaderCaptures).length;
 		const menuRows = rows.map((r, index) => ({ id: `${index}`, label: r.label }));
@@ -341,7 +347,14 @@ export async function runDashboard(pi: ExtensionAPI, ctx: ExtensionCommandContex
 			],
 			{
 				summaryLines: [`${rows.length} 接入 · ${modelCount} 模型 · ${captureCount} 内置抓包 · ${profileCount} 自定义请求头`],
-				tableHeader: PROVIDER_CONSOLE_HEADER,
+				tableHeader: formatProviderConsoleHeader,
+				formatRow: (menuRow, width) => {
+					const row = rows[Number.parseInt(menuRow.id, 10)];
+					const provider = row ? state.providers[row.providerId] : undefined;
+					return row && provider
+						? formatProviderConsoleRow(row.providerId, provider, state.requestHeaderProfiles, width)
+						: menuRow.label;
+				},
 				getDetailLines: (selectedRow) => {
 					const row = rows[Number.parseInt(selectedRow?.id ?? "", 10)];
 					const provider = row ? state.providers[row.providerId] : undefined;

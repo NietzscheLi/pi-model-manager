@@ -3,20 +3,30 @@
 // StateDocument 合成层：从 Pi 原生 models.json 读取模型定义，再叠加
 // state.json 中的插件私有元数据，提供 TUI 与运行时注册使用的统一视图。
 
+import { setTimeout as delay } from "node:timers/promises";
 import { getBuiltinProviderDefaults } from "./builtin-model-catalog.ts";
 import { mergeCompatSettings } from "./compat-settings.ts";
-import { cloneJson, hasStringRecordEntries, isObjectRecord } from "./common.ts";
-import { readModelsJson, type ModelsJsonDocument, type ModelsJsonModelEntry, type ModelsJsonProviderEntry } from "./models-json-manager.ts";
+import { cloneJson, cloneStringRecord, hasStringRecordEntries, isObjectRecord } from "./common.ts";
+import { readStableTextFileSnapshot } from "./file-snapshot.ts";
+import {
+	getModelsJsonPath,
+	hasPluginManagedProviderMarker,
+	readModelsJsonSnapshot,
+	type ModelsJsonDocument,
+	type ModelsJsonModelEntry,
+	type ModelsJsonProviderEntry,
+} from "./models-json-manager.ts";
 import {
 	getClientHeadersForProfile,
 	stripManagedClientHeaders,
 } from "./presets/client-headers.ts";
 import { normalizeThinkingLevelMap } from "./presets/thinking.ts";
 import {
+	CONFIGURATION_TRANSACTION_PATH,
 	getStatePath as getMetadataStatePath,
-	readMetadataStateFile,
-	writeMetadataState,
+	readMetadataStateSnapshot,
 	type MetadataDocument,
+	type ParsedMetadataStateFile,
 } from "./state-metadata-store.ts";
 import type {
 	ApiKind,
@@ -31,13 +41,11 @@ import type {
 } from "./types.ts";
 import { ZERO_COST } from "./types.ts";
 
-export { STATE_PATH } from "./state-metadata-store.ts";
-
 const API_KINDS = new Set<ApiKind>(["openai-completions", "openai-responses", "anthropic-messages", "google-generative-ai"]);
 const INPUT_KINDS = new Set<ModelInputKind>(["text", "image"]);
 
 function createEmptyStateDocument(): StateDocument {
-	return { version: 1, providers: {}, requestHeaderProfiles: {}, clientHeaderCaptures: {} };
+	return { version: 2, providers: {}, managedProviderIds: [], requestHeaderProfiles: {}, clientHeaderCaptures: {} };
 }
 
 function asApiKind(value: unknown): ApiKind | undefined {
@@ -98,6 +106,7 @@ function buildStoredModelFromModelsJson(
 	providerApi: ApiKind,
 	providerBaseUrl: string,
 	providerCompat: CompatSettings | undefined,
+	managed: boolean,
 	clientHeaderProfile: StoredProvider["clientHeaderProfile"],
 	customClientHeaders: Record<string, string>,
 	model: ModelsJsonModelEntry,
@@ -108,14 +117,18 @@ function buildStoredModelFromModelsJson(
 	const effectiveApi = asApiKind(explicitApi) ?? providerApi;
 	const modelCompat = model.compat ? cloneJson(model.compat) : undefined;
 	const effectiveCompat = mergeCompatSettings(providerCompat, modelCompat);
-	const profileHeaders = getClientHeadersForProfile(
-		clientHeaderProfile,
-		effectiveApi,
-		customClientHeaders,
-		metadata.clientHeaderCaptures,
-		effectiveCompat,
-	);
-	const nativeHeaders = stripManagedClientHeaders(model.headers, profileHeaders);
+	const profileHeaders = managed
+		? getClientHeadersForProfile(
+			clientHeaderProfile,
+			effectiveApi,
+			customClientHeaders,
+			metadata.clientHeaderCaptures,
+			effectiveCompat,
+		)
+		: undefined;
+	const nativeHeaders = managed
+		? stripManagedClientHeaders(model.headers, profileHeaders)
+		: cloneStringRecord(model.headers);
 	const stored: StoredModel = {
 		id: model.id,
 		reasoning: model.reasoning ?? false,
@@ -143,6 +156,7 @@ async function buildStoredProviderFromModelsJson(
 	providerId: string,
 	entry: ModelsJsonProviderEntry,
 	metadata: MetadataDocument,
+	requirePluginManagedProviderMarker: boolean,
 ): Promise<StoredProvider | undefined> {
 	const rawModels = entry.models ?? [];
 	if (rawModels.length === 0) return undefined;
@@ -154,8 +168,10 @@ async function buildStoredProviderFromModelsJson(
 	if (!api || !baseUrl) return undefined;
 
 	const providerMetadata = metadata.providers[providerId];
-	const clientHeaderProfile = providerMetadata?.clientHeaderProfile ?? "recommended";
-	const customClientHeaders = clientHeaderProfile === "custom"
+	const managed = metadata.managedProviderIds.includes(providerId)
+		&& (!requirePluginManagedProviderMarker || hasPluginManagedProviderMarker(entry));
+	const clientHeaderProfile = managed ? providerMetadata?.clientHeaderProfile ?? "recommended" : "disabled";
+	const customClientHeaders = managed && clientHeaderProfile === "custom"
 		? resolveProviderCustomHeaders(providerMetadata, metadata)
 		: {};
 	const providerCompat = entry.compat ? cloneJson(entry.compat) : undefined;
@@ -165,6 +181,7 @@ async function buildStoredProviderFromModelsJson(
 			api,
 			baseUrl,
 			providerCompat,
+			managed,
 			clientHeaderProfile,
 			customClientHeaders,
 			model,
@@ -177,6 +194,7 @@ async function buildStoredProviderFromModelsJson(
 		name: entry.name || providerId,
 		api,
 		baseUrl,
+		managed,
 		clientHeaderProfile,
 		models,
 	};
@@ -185,50 +203,86 @@ async function buildStoredProviderFromModelsJson(
 	if (entry.headers !== undefined) provider.headers = cloneJson(entry.headers);
 	if (providerCompat) provider.compat = providerCompat;
 	if (entry.modelOverrides !== undefined) provider.modelOverrides = cloneJson(entry.modelOverrides);
-	if (provider.clientHeaderProfile === "custom" && providerMetadata?.requestHeaderProfileId) {
+	if (managed && provider.clientHeaderProfile === "custom" && providerMetadata?.requestHeaderProfileId) {
 		provider.requestHeaderProfileId = providerMetadata.requestHeaderProfileId;
 	}
-	if (provider.clientHeaderProfile === "custom" && hasStringRecordEntries(providerMetadata?.customClientHeaders)) {
+	if (managed && provider.clientHeaderProfile === "custom" && hasStringRecordEntries(providerMetadata?.customClientHeaders)) {
 		provider.customClientHeaders = cloneJson(providerMetadata!.customClientHeaders!);
 	}
-	if (providerMetadata?.httpProxyEnabled !== undefined) provider.httpProxyEnabled = providerMetadata.httpProxyEnabled;
-	if (providerMetadata?.httpProxyUrl !== undefined) provider.httpProxyUrl = providerMetadata.httpProxyUrl;
+	if (managed && providerMetadata?.httpProxyEnabled !== undefined) provider.httpProxyEnabled = providerMetadata.httpProxyEnabled;
+	if (managed && providerMetadata?.httpProxyUrl !== undefined) provider.httpProxyUrl = providerMetadata.httpProxyUrl;
 	return provider;
 }
 
 export async function buildStateDocumentFromModelsJson(
 	document: ModelsJsonDocument,
 	metadata: MetadataDocument,
+	requirePluginManagedProviderMarker = false,
 ): Promise<StateDocument> {
 	const providers: StateDocument["providers"] = {};
 	for (const [providerId, entry] of Object.entries(document.providers)) {
-		const provider = await buildStoredProviderFromModelsJson(providerId, entry, metadata);
+		const provider = await buildStoredProviderFromModelsJson(
+			providerId,
+			entry,
+			metadata,
+			requirePluginManagedProviderMarker,
+		);
 		if (provider) providers[providerId] = provider;
 	}
 	return {
-		version: 1,
+		version: 2,
 		providers,
+		managedProviderIds: Object.entries(providers)
+			.filter(([, provider]) => provider.managed)
+			.map(([providerId]) => providerId),
 		requestHeaderProfiles: metadata.requestHeaderProfiles,
 		clientHeaderCaptures: metadata.clientHeaderCaptures,
 	};
 }
 
-export async function readState(): Promise<StateDocument> {
-	const { metadata, legacyProviders } = await readMetadataStateFile();
+export async function buildStateDocumentFromSources(
+	modelsDocument: ModelsJsonDocument,
+	metadataFile: ParsedMetadataStateFile,
+): Promise<StateDocument> {
 	const state = await buildStateDocumentFromModelsJson(
-		await readModelsJson(),
-		metadata,
+		modelsDocument,
+		metadataFile.metadata,
+		metadataFile.requirePluginManagedProviderMarker,
 	);
-	for (const [providerId, provider] of Object.entries(legacyProviders)) {
+	for (const [providerId, provider] of Object.entries(metadataFile.legacyProviders)) {
 		if (!state.providers[providerId]) state.providers[providerId] = provider;
+		if (!state.managedProviderIds.includes(providerId)) state.managedProviderIds.push(providerId);
 	}
 	return state;
 }
 
-export async function writeState(state: StateDocument): Promise<void> {
-	await writeMetadataState(state);
+export async function readState(): Promise<StateDocument> {
+	for (let attempt = 0; attempt < 3; attempt += 1) {
+		const journalBefore = await readStableTextFileSnapshot(CONFIGURATION_TRANSACTION_PATH);
+		if (journalBefore.source !== undefined) {
+			if (attempt < 2) await delay(10);
+			continue;
+		}
+		const [modelsSnapshot, metadataSnapshot] = await Promise.all([
+			readModelsJsonSnapshot(),
+			readMetadataStateSnapshot(),
+		]);
+		const [modelsAfter, metadataAfter, journalAfter] = await Promise.all([
+			readStableTextFileSnapshot(getModelsJsonPath()),
+			readStableTextFileSnapshot(getMetadataStatePath()),
+			readStableTextFileSnapshot(CONFIGURATION_TRANSACTION_PATH),
+		]);
+		if (
+			journalAfter.source === undefined
+			&& modelsAfter.contentHash === modelsSnapshot.contentHash
+			&& metadataAfter.contentHash === metadataSnapshot.contentHash
+		) {
+			return buildStateDocumentFromSources(modelsSnapshot.document, metadataSnapshot);
+		}
+		if (attempt < 2) await delay(10);
+	}
+	throw new Error("models.json/state.json 正在事务更新或持续变化；请稍后重试。");
 }
-
 export function getStatePath(): string {
 	return getMetadataStatePath();
 }

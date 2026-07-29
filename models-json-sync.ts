@@ -9,21 +9,21 @@ import {
 	getAgentDir,
 	ModelRegistry,
 	ModelRuntime,
-	SettingsManager,
 	type ExtensionCommandContext,
 } from "@earendil-works/pi-coding-agent";
-import { readFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { join } from "node:path";
 import { minimatch } from "minimatch";
 import { atomicWriteText } from "./atomic-write.ts";
 import { cloneJson, formatUnknownError, isObjectRecord, stringifyJson, stripJsonNoise } from "./common.ts";
+import { withConfigurationLock } from "./configuration-lock.ts";
+import { readStableTextFileSnapshot } from "./file-snapshot.ts";
 import {
+	deleteModelInDoc,
 	deleteProviderInDoc,
-	readModelsJsonSnapshot,
-	renameModelInDoc,
-	renameProviderInDoc,
+	markProviderEntryAsPluginManaged,
+	setModelInDoc,
 	setProviderInDoc,
-	writeModelsJsonSnapshot,
 	type ModelsJsonDocument,
 	type ModelsJsonModelEntry,
 	type ModelsJsonProviderEntry,
@@ -101,7 +101,7 @@ function buildModelsJsonModelEntry(
 	return next;
 }
 
-export function buildModelsJsonProviderEntry(
+function buildModelsJsonProviderEntry(
 	provider: StoredProvider,
 	requestHeaderProfiles: Record<string, StoredRequestHeaderProfile> = {},
 	clientHeaderCaptures: Partial<Record<BuiltInClientHeaderProfileId, StoredClientHeaderCapture>> = {},
@@ -131,20 +131,22 @@ export function buildModelsJsonProviderEntry(
 		clientHeaderCaptures,
 		existingModels.get(model.id),
 	));
-	return next;
+	return markProviderEntryAsPluginManaged(next);
 }
 
 export function buildSynchronizedModelsDocument(
 	document: StateDocument,
 	sourceDocument: ModelsJsonDocument,
 	removedProviderIds: string[] = [],
+	changedProviderIds: string[] = document.managedProviderIds,
 ): ModelsJsonDocument {
 	let nextDocument = sourceDocument;
 	for (const providerId of removedProviderIds) {
 		nextDocument = deleteProviderInDoc(nextDocument, providerId);
 	}
-	for (const [providerId, provider] of Object.entries(document.providers)) {
-		if (provider.models.length === 0) {
+	for (const providerId of [...new Set(changedProviderIds)]) {
+		const provider = document.providers[providerId];
+		if (!provider || provider.models.length === 0) {
 			nextDocument = deleteProviderInDoc(nextDocument, providerId);
 			continue;
 		}
@@ -159,36 +161,40 @@ export function buildSynchronizedModelsDocument(
 	return nextDocument;
 }
 
-export async function syncStateToModelsJson(document: StateDocument, removedProviderIds: string[] = []): Promise<void> {
-	const snapshot = await readModelsJsonSnapshot();
-	const nextDocument = buildSynchronizedModelsDocument(document, snapshot.document, removedProviderIds);
-	await writeModelsJsonSnapshot(snapshot, nextDocument);
-}
-
-export async function syncProviderRenameToModelsJson(
+export function buildModelsDocumentWithSynchronizedModel(
 	document: StateDocument,
-	oldProviderId: string,
-	newProviderId: string,
-): Promise<void> {
-	const snapshot = await readModelsJsonSnapshot();
-	const renamedDocument = renameProviderInDoc(snapshot.document, oldProviderId, newProviderId);
-	const nextDocument = buildSynchronizedModelsDocument(document, renamedDocument);
-	await writeModelsJsonSnapshot(snapshot, nextDocument);
-}
-
-export async function syncModelRenameToModelsJson(
-	document: StateDocument,
+	sourceDocument: ModelsJsonDocument,
 	providerId: string,
-	oldModelId: string,
-	newModelId: string,
-): Promise<void> {
-	const snapshot = await readModelsJsonSnapshot();
-	const renamedDocument = renameModelInDoc(snapshot.document, providerId, oldModelId, newModelId);
-	const nextDocument = buildSynchronizedModelsDocument(document, renamedDocument);
-	await writeModelsJsonSnapshot(snapshot, nextDocument);
+	modelId: string,
+	replacedModelId?: string,
+): ModelsJsonDocument {
+	const provider = document.providers[providerId];
+	if (!provider) throw new Error(`接入不存在：${providerId}`);
+	const model = provider.models.find((candidate) => candidate.id === modelId);
+	if (!model) throw new Error(`模型不存在：${providerId}/${modelId}`);
+	const sourceModel = sourceDocument.providers[providerId]?.models?.find(
+		(candidate) => candidate.id === modelId || candidate.id === replacedModelId,
+	);
+	const entry = buildModelsJsonModelEntry(
+		provider,
+		model,
+		document.requestHeaderProfiles,
+		document.clientHeaderCaptures,
+		sourceModel,
+	);
+	return setModelInDoc(sourceDocument, providerId, entry, replacedModelId);
 }
 
-
+export function buildModelsDocumentWithoutModel(
+	document: StateDocument,
+	sourceDocument: ModelsJsonDocument,
+	providerId: string,
+	modelId: string,
+): ModelsJsonDocument {
+	return document.providers[providerId]
+		? deleteModelInDoc(sourceDocument, providerId, modelId)
+		: deleteProviderInDoc(sourceDocument, providerId);
+}
 function splitThinkingSuffix(pattern: string): { base: string; suffix: string } {
 	const index = pattern.lastIndexOf(":");
 	if (index < 0) return { base: pattern, suffix: "" };
@@ -234,55 +240,75 @@ function upsertEnabledModelPattern(patterns: string[], fullModelId: string, repl
 	return dedupeModelPatterns(next);
 }
 
-function removeEnabledModelPattern(patterns: string[], fullModelId: string): string[] {
-	return patterns.filter((pattern) => !sameModelPatternBase(splitThinkingSuffix(pattern).base, fullModelId));
+function removeEnabledModelPatterns(patterns: string[], fullModelIds: readonly string[]): string[] {
+	const removedIds = new Set(fullModelIds.map((fullModelId) => fullModelId.toLowerCase()));
+	return patterns.filter((pattern) => !removedIds.has(splitThinkingSuffix(pattern).base.toLowerCase()));
 }
 
-async function atomicWriteJson(path: string, value: unknown): Promise<void> {
-	await atomicWriteText(path, stringifyJson(value));
+function removeEnabledProviderPatterns(patterns: string[], providerId: string): string[] {
+	const providerPrefix = `${providerId}/`.toLowerCase();
+	return patterns.filter((pattern) => !splitThinkingSuffix(pattern).base.toLowerCase().startsWith(providerPrefix));
 }
 
-async function readSettingsFile(path: string): Promise<Record<string, unknown>> {
-	const source = await readFile(path, "utf8");
-	const parsed = JSON.parse(stripJsonNoise(source));
-	if (!isObjectRecord(parsed)) throw new Error(`${path} 根节点必须是对象`);
-	return parsed;
+interface SettingsFileLock {
+	lock(path: string, options: {
+		realpath: false;
+		retries: { retries: number; factor: number; minTimeout: number; maxTimeout: number };
+	}): Promise<() => Promise<void>>;
 }
 
-async function updateProjectEnabledModels(cwd: string, update: (patterns: string[]) => string[]): Promise<EnabledModelUpdate> {
-	const path = join(cwd, CONFIG_DIR_NAME, "settings.json");
-	const settings = await readSettingsFile(path);
-	const current = settings.enabledModels;
-	if (!Array.isArray(current)) return { mode: "all-enabled" };
-	const patterns = current.filter((item): item is string => typeof item === "string");
-	if (patterns.length === 0) return { mode: "all-enabled" };
-	const next = update(patterns);
-	if (JSON.stringify(next) === JSON.stringify(patterns)) return { mode: "unchanged", scope: "project" };
-	settings.enabledModels = next;
-	await atomicWriteJson(path, settings);
-	return { mode: "updated", scope: "project" };
+const require = createRequire(import.meta.url);
+const settingsFileLock = require("proper-lockfile") as SettingsFileLock;
+
+interface LockedSettingsUpdate {
+	configured: boolean;
+	outcome: EnabledModelUpdate;
 }
 
-async function flushGlobalSettingsWrite(settings: SettingsManager): Promise<void> {
-	await settings.flush();
-	const errors = settings.drainErrors();
-	if (errors.length > 0) {
-		const detail = errors.map((entry) => `${entry.scope}: ${entry.error.message}`).join("; ");
-		throw new Error(`settings.json enabledModels 写入失败：${detail}`);
+async function updateLockedSettings(
+	path: string,
+	scope: "global" | "project",
+	update: (patterns: string[]) => string[],
+): Promise<LockedSettingsUpdate> {
+	const initialSnapshot = await readStableTextFileSnapshot(path);
+	if (initialSnapshot.source === undefined) {
+		return { configured: false, outcome: { mode: "all-enabled" } };
+	}
+	const release = await settingsFileLock.lock(path, {
+		realpath: false,
+		retries: { retries: 10, factor: 1, minTimeout: 20, maxTimeout: 20 },
+	});
+	try {
+		const snapshot = await readStableTextFileSnapshot(path);
+		const settings = snapshot.source === undefined ? {} : JSON.parse(stripJsonNoise(snapshot.source));
+		if (!isObjectRecord(settings)) throw new Error(`${path} 根节点必须是对象`);
+		const current = settings.enabledModels;
+		if (!Array.isArray(current)) return { configured: false, outcome: { mode: "all-enabled" } };
+		const patterns = current.filter((item): item is string => typeof item === "string");
+		if (patterns.length === 0) return { configured: true, outcome: { mode: "all-enabled" } };
+		const next = update(patterns);
+		if (JSON.stringify(next) === JSON.stringify(patterns)) {
+			return { configured: true, outcome: { mode: "unchanged", scope } };
+		}
+		const currentSnapshot = await readStableTextFileSnapshot(path);
+		if (currentSnapshot.contentHash !== snapshot.contentHash) {
+			throw new Error(`${path} 已被未遵守 Pi 文件锁的编辑器修改；已取消 enabledModels 同步，请重试。`);
+		}
+		settings.enabledModels = next;
+		await atomicWriteText(path, stringifyJson(settings));
+		return { configured: true, outcome: { mode: "updated", scope } };
+	} finally {
+		await release();
 	}
 }
 
-async function updateGlobalEnabledModels(cwd: string, update: (patterns: string[]) => string[]): Promise<EnabledModelUpdate> {
-	const settings = SettingsManager.create(cwd, getAgentDir());
-	const current = settings.getGlobalSettings().enabledModels;
-	if (!Array.isArray(current) || current.length === 0) return { mode: "all-enabled" };
-	const patterns = current.filter((item): item is string => typeof item === "string");
-	if (patterns.length === 0) return { mode: "all-enabled" };
-	const next = update(patterns);
-	if (JSON.stringify(next) === JSON.stringify(patterns)) return { mode: "unchanged", scope: "global" };
-	settings.setEnabledModels(next);
-	await flushGlobalSettingsWrite(settings);
-	return { mode: "updated", scope: "global" };
+async function updateEnabledModelsForNextPiStart(
+	cwd: string,
+	update: (patterns: string[]) => string[],
+): Promise<EnabledModelUpdate> {
+	const projectUpdate = await updateLockedSettings(join(cwd, CONFIG_DIR_NAME, "settings.json"), "project", update);
+	if (projectUpdate.configured) return projectUpdate.outcome;
+	return (await updateLockedSettings(join(getAgentDir(), "settings.json"), "global", update)).outcome;
 }
 
 export async function enableModelForNextPiStart(
@@ -290,23 +316,24 @@ export async function enableModelForNextPiStart(
 	fullModelId: string,
 	replacedFullModelId?: string,
 ): Promise<EnabledModelUpdate> {
-	const settings = SettingsManager.create(cwd, getAgentDir());
-	const projectEnabled = settings.getProjectSettings().enabledModels;
-	const update = (patterns: string[]) => upsertEnabledModelPattern(patterns, fullModelId, replacedFullModelId);
-	if (Array.isArray(projectEnabled)) {
-		return updateProjectEnabledModels(cwd, update);
-	}
-	return updateGlobalEnabledModels(cwd, update);
+	return withConfigurationLock(() => updateEnabledModelsForNextPiStart(
+		cwd,
+		(patterns) => upsertEnabledModelPattern(patterns, fullModelId, replacedFullModelId),
+	));
 }
 
 export async function removeModelFromNextPiStart(cwd: string, fullModelId: string): Promise<EnabledModelUpdate> {
-	const settings = SettingsManager.create(cwd, getAgentDir());
-	const projectEnabled = settings.getProjectSettings().enabledModels;
-	const update = (patterns: string[]) => removeEnabledModelPattern(patterns, fullModelId);
-	if (Array.isArray(projectEnabled)) {
-		return updateProjectEnabledModels(cwd, update);
-	}
-	return updateGlobalEnabledModels(cwd, update);
+	return withConfigurationLock(() => updateEnabledModelsForNextPiStart(
+		cwd,
+		(patterns) => removeEnabledModelPatterns(patterns, [fullModelId]),
+	));
+}
+
+export async function removeProviderFromNextPiStart(cwd: string, providerId: string): Promise<EnabledModelUpdate> {
+	return withConfigurationLock(() => updateEnabledModelsForNextPiStart(
+		cwd,
+		(patterns) => removeEnabledProviderPatterns(patterns, providerId),
+	));
 }
 
 function replaceEnabledProviderPatterns(
@@ -332,13 +359,10 @@ export async function replaceProviderInEnabledModelsForNextPiStart(
 	newProviderId: string,
 ): Promise<EnabledModelUpdate> {
 	if (oldProviderId === newProviderId) return { mode: "unchanged" };
-	const settings = SettingsManager.create(cwd, getAgentDir());
-	const projectEnabled = settings.getProjectSettings().enabledModels;
-	const update = (patterns: string[]) => replaceEnabledProviderPatterns(patterns, oldProviderId, newProviderId);
-	if (Array.isArray(projectEnabled)) {
-		return updateProjectEnabledModels(cwd, update);
-	}
-	return updateGlobalEnabledModels(cwd, update);
+	return withConfigurationLock(() => updateEnabledModelsForNextPiStart(
+		cwd,
+		(patterns) => replaceEnabledProviderPatterns(patterns, oldProviderId, newProviderId),
+	));
 }
 
 async function verifyRegistryModel(

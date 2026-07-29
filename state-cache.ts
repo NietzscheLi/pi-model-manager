@@ -2,7 +2,8 @@
 //
 // 请求路径上的轻量 StateDocument 缓存。外部改动由文件签名检测，插件自身 mutation 还会主动失效。
 
-import { getModelsJsonPath, readFileSignature, sameFileSignature, type FileSignature } from "./models-json-manager.ts";
+import { readFileSignature, sameFileSignature, type FileSignature } from "./file-snapshot.ts";
+import { getModelsJsonPath } from "./models-json-manager.ts";
 import { readState, getStatePath } from "./state-store.ts";
 import type { StateDocument } from "./types.ts";
 

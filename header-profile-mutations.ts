@@ -6,7 +6,22 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-c
 import { persistManagedConfiguration } from "./configuration-persistence.ts";
 import { registerAllFromState } from "./provider-registrar.ts";
 import { deleteRequestHeaderProfileFromDocument, upsertRequestHeaderProfileInDocument } from "./state-document.ts";
-import type { RequestHeaderProfileDraft, StateDocument } from "./types.ts";
+import type { RequestHeaderProfileDraft, StateDocument, StoredProvider } from "./types.ts";
+
+function providerReferencesProfile(provider: StoredProvider, profileId: string): boolean {
+	return provider.requestHeaderProfileId === profileId
+		|| provider.models.some((model) => model.requestHeaderProfileId === profileId);
+}
+
+function findProfileProviderIds(
+	document: StateDocument,
+	profileIds: string[],
+): string[] {
+	const ids = new Set(profileIds);
+	return Object.entries(document.providers)
+		.filter(([, provider]) => provider.managed && [...ids].some((profileId) => providerReferencesProfile(provider, profileId)))
+		.map(([providerId]) => providerId);
+}
 
 function notifyHeaderProfileRefresh(
 	ctx: ExtensionCommandContext,
@@ -23,12 +38,16 @@ function notifyHeaderProfileRefresh(
 export async function saveRequestHeaderProfileConfiguration(
 	pi: ExtensionAPI,
 	ctx: ExtensionCommandContext,
-	state: StateDocument,
+	_state: StateDocument,
 	draft: RequestHeaderProfileDraft,
 	oldProfileId: string | undefined,
 ): Promise<void> {
-	const nextState = upsertRequestHeaderProfileInDocument(state, oldProfileId, draft);
-	await persistManagedConfiguration(ctx, nextState);
+	const profileId = draft.profileId.trim();
+	const nextState = await persistManagedConfiguration(ctx, (latest) => ({
+		document: upsertRequestHeaderProfileInDocument(latest, oldProfileId, draft),
+		changedProviderIds: findProfileProviderIds(latest, [profileId, ...(oldProfileId ? [oldProfileId] : [])]),
+		removedProviderIds: [],
+	}));
 	const warnings = await registerAllFromState(pi, nextState);
 	notifyHeaderProfileRefresh(ctx, `已保存请求头 ${draft.profileId.trim()}`, warnings);
 }
@@ -36,11 +55,14 @@ export async function saveRequestHeaderProfileConfiguration(
 export async function deleteRequestHeaderProfileConfiguration(
 	pi: ExtensionAPI,
 	ctx: ExtensionCommandContext,
-	state: StateDocument,
+	_state: StateDocument,
 	profileId: string,
 ): Promise<void> {
-	const nextState = deleteRequestHeaderProfileFromDocument(state, profileId);
-	await persistManagedConfiguration(ctx, nextState);
+	const nextState = await persistManagedConfiguration(ctx, (latest) => ({
+		document: deleteRequestHeaderProfileFromDocument(latest, profileId),
+		changedProviderIds: findProfileProviderIds(latest, [profileId]),
+		removedProviderIds: [],
+	}));
 	const warnings = await registerAllFromState(pi, nextState);
 	notifyHeaderProfileRefresh(ctx, `已删除请求头 ${profileId}`, warnings);
 }

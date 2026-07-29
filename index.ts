@@ -10,6 +10,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { formatUnknownError } from "./common.ts";
+import { recoverPendingConfigurationTransaction } from "./configuration-persistence.ts";
 import { resetClaudeCodeMetadataSession } from "./claude-code-compat.ts";
 import { closeLocalProxyServer } from "./local-proxy-service.ts";
 import { registerAllFromState, registerCatalogFromState } from "./provider-registrar.ts";
@@ -24,17 +25,25 @@ interface StartupSummary {
 export default async function modelManagerExtension(pi: ExtensionAPI): Promise<void> {
 	const summary: StartupSummary = { startupErrors: [] };
 
-	// ---- 1. 读原生模型配置 + 插件元数据 ----
+	let configurationBlocked = false;
 	try {
-		const stateForStartup = await readState().catch((error) => {
-			summary.startupErrors.push(`读取 models.json/state.json 失败：${formatUnknownError(error)}（本次启动仅使用内存空配置，不覆盖原文件）`);
-			return createEmptyState();
-		});
-		for (const warning of await registerCatalogFromState(pi, stateForStartup)) {
-			summary.startupErrors.push(`注册模型目录失败：${warning}`);
-		}
+		await recoverPendingConfigurationTransaction();
 	} catch (error) {
-		summary.startupErrors.push(`读取/注册模型配置失败：${formatUnknownError(error)}`);
+		configurationBlocked = true;
+		summary.startupErrors.push(`恢复未完成配置事务失败：${formatUnknownError(error)}（为避免读取半完成配置，本次暂不注册模型）`);
+	}
+	if (!configurationBlocked) {
+		try {
+			const stateForStartup = await readState().catch((error) => {
+				summary.startupErrors.push(`读取 models.json/state.json 失败：${formatUnknownError(error)}（本次启动仅使用内存空配置，不覆盖原文件）`);
+				return createEmptyState();
+			});
+			for (const warning of await registerCatalogFromState(pi, stateForStartup)) {
+				summary.startupErrors.push(`注册模型目录失败：${warning}`);
+			}
+		} catch (error) {
+			summary.startupErrors.push(`读取/注册模型配置失败：${formatUnknownError(error)}`);
+		}
 	}
 
 	// ---- 2. session_start 激活 transport 并汇报 ----
@@ -44,12 +53,17 @@ export default async function modelManagerExtension(pi: ExtensionAPI): Promise<v
 		resetClaudeCodeMetadataSession();
 		const transportErrors: string[] = [];
 		try {
+			if (configurationBlocked) {
+				await recoverPendingConfigurationTransaction();
+				configurationBlocked = false;
+			}
 			const currentState = await readState();
 			for (const warning of await registerAllFromState(pi, currentState)) {
 				transportErrors.push(`激活模型接入失败：${warning}`);
 			}
 		} catch (error) {
-			transportErrors.push(`读取或激活模型配置失败：${formatUnknownError(error)}`);
+			configurationBlocked = true;
+			transportErrors.push(`恢复、读取或激活模型配置失败：${formatUnknownError(error)}`);
 		}
 
 		if (event.reason === "startup" && !notified) {

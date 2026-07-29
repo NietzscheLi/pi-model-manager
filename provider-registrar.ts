@@ -31,7 +31,7 @@ type ProviderModelConfig = NonNullable<ProviderConfig["models"]>[number];
 
 const REGISTERED_PROVIDER_CONFIGS = new Map<string, ProviderConfig>();
 
-export function buildProviderConfig(
+function buildProviderConfig(
 	provider: StoredProvider,
 	requestHeaderProfiles: Record<string, StoredRequestHeaderProfile> = {},
 	clientHeaderCaptures: Partial<Record<BuiltInClientHeaderProfileId, StoredClientHeaderCapture>> = {},
@@ -112,6 +112,7 @@ export function buildModelRequestHeaders(
 	requestHeaderProfiles: Record<string, StoredRequestHeaderProfile>,
 	clientHeaderCaptures: Partial<Record<BuiltInClientHeaderProfileId, StoredClientHeaderCapture>>,
 ): Record<string, string> | undefined {
+	if (!provider.managed) return model.headers ? { ...model.headers } : undefined;
 	const customHeaders = provider.clientHeaderProfile === "custom"
 		? resolveProviderCustomHeaders(provider, requestHeaderProfiles)
 		: {};
@@ -167,7 +168,7 @@ export function unregisterManagedProvider(pi: ExtensionAPI, providerId: string):
 }
 
 async function canRegisterManagedProvider(providerId: string, provider: StoredProvider): Promise<boolean> {
-	return provider.models.length > 0 && !(await isBuiltinProviderId(providerId));
+	return provider.managed && provider.models.length > 0 && !(await isBuiltinProviderId(providerId));
 }
 
 function replaceManagedProviderConfig(
@@ -260,6 +261,12 @@ async function reconcileAllFromState(
 	reconcile: StateProviderReconciler,
 ): Promise<string[]> {
 	const warnings: string[] = [];
+	const activeProviderIds = new Set(
+		[...document.managedProviderIds].filter((providerId) => document.providers[providerId]?.managed),
+	);
+	for (const providerId of REGISTERED_PROVIDER_CONFIGS.keys()) {
+		if (!activeProviderIds.has(providerId)) unregisterManagedProvider(pi, providerId);
+	}
 	for (const [providerId, provider] of Object.entries(document.providers)) {
 		try {
 			await reconcile(pi, providerId, provider, document.requestHeaderProfiles, document.clientHeaderCaptures);

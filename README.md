@@ -4,11 +4,11 @@
 
 [![Pi](https://img.shields.io/badge/Pi-%3E%3D0.82.0-6f42c1)](https://github.com/earendil-works/pi)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-0.1.0-2f81f7.svg)](https://www.npmjs.com/package/pi-model-manager)
+[![Version](https://img.shields.io/badge/version-0.2.0-2f81f7.svg)](https://github.com/Qihuanxishini/pi-model-manager)
 
 一个面向 [Pi](https://github.com/earendil-works/pi) 的 TUI 模型与接入管理扩展。它以 Pi 原生 `models.json` 为模型配置的唯一权威来源，并提供接入/模型编辑、请求头身份、代理路由和协议兼容配置。
 
-> 当前稳定版为 `0.1.0`，要求 Pi `>=0.82.0`。
+> 当前稳定版为 `0.2.0`，要求 Pi `>=0.82.0`。
 
 ## 界面预览
 
@@ -45,7 +45,7 @@
 - 为每个接入单独配置直连或 HTTP(S) 代理。
 - 提供自动推荐、禁用、Claude Code、Codex 和自定义请求头模式。
 - API key 支持字面值、`$ENV_VAR` / `${ENV_VAR}` 和 Pi 的 `!command` 引用。
-- 原子写入配置，并在保存后重新注册受管理的 Provider，无需手工编辑多处分散状态。
+- 使用跨进程锁与可恢复双文件事务持久化配置，并在保存后重新注册受管理的 Provider。
 
 ## 安装
 
@@ -92,6 +92,7 @@ pi install npm:pi-model-manager
    | `n` | 新建接入及其第一个模型 |
    | `d` | 删除所选接入 |
    | `h` | 管理可复用请求头 |
+   | `/` | 搜索当前列表 |
    | `Esc` | 返回或退出 |
 
 4. 在编辑器中使用方向键选择字段，按 `Enter` 编辑；支持切换的字段可用 `←` / `→` 调整；按 `Ctrl+S` 保存。
@@ -110,7 +111,7 @@ pi install npm:pi-model-manager
 - 接入级 HTTP(S) 代理
 - 一个或多个模型
 
-新建模型时，扩展会尝试在 10 秒内从上游读取模型列表；失败后仍可手动输入模型 ID。
+新建模型时，扩展会尝试从上游读取模型列表；整次发现（包括认证回退）共用一个 10 秒上限，可按 `Esc` 手动取消。失败或取消后仍可手动输入模型 ID。
 
 ### 模型能力
 
@@ -149,7 +150,9 @@ pi install npm:pi-model-manager
 | `~/.pi/agent/models.json` | Pi 原生接入与模型定义；模型配置的唯一权威来源 |
 | `~/.pi/agent/extensions/pi-model-manager/state.json` | 请求头选择、自定义请求头、代理开关和 Fast mode 等扩展私有元数据 |
 
-扩展会尽量保留 `models.json` 中不由 TUI 编辑的原生字段。不要同时让多个进程修改同一配置文件。
+扩展只会为明确受管理的 Provider 生成请求头、代理路由和动态注册配置。所有权由 `state.json` 的受管理 ID 与 `models.json` Provider 节点中的 `piModelManager.managed` 标记共同确认，防止已删除的 Provider ID 在日后被同名原生配置复用时遭到插件接管。没有这些所有权信息的原生 Provider 保持未管理，其已有 Header 和未知原生字段不会因保存其它配置而被改写；Pi 内置 Provider 不在本扩展中提供编辑或删除入口。
+
+插件自身的配置写入由跨进程锁串行化，`enabledModels` 还同时遵守 Pi 的 `proper-lockfile` 锁；`models.json` 与 `state.json` 通过事务意图文件在中断后恢复，读取方不会采用事务进行中的半完成组合。外部编辑器不受这些锁约束，因此保存前仍会校验内容签名；检测到外部修改时会取消保存而不是覆盖。
 
 ## 密钥与安全
 
@@ -207,4 +210,4 @@ npm pack --dry-run
 
 ## 许可证
 
-`v0.1.0` 及后续官方版本采用 [GNU Affero General Public License v3.0 only](./LICENSE)。分发修改版本时必须公开对应源码、继续使用 AGPL-3.0，并明确标注改动；修改版不得冒充官方发行。详见 [NOTICE](./NOTICE)。
+本项目采用 [GNU Affero General Public License v3.0 only](./LICENSE)。分发修改版本时必须公开对应源码、继续使用 AGPL-3.0，并明确标注改动；修改版不得冒充官方发行。详见 [NOTICE](./NOTICE)。

@@ -16,15 +16,6 @@ export function trimOrFallback(value: string | undefined, fallback: string): str
 	return trimmed ? trimmed : fallback;
 }
 
-export function trimSingleLine(value: string): string {
-	return value.replace(/[\r\n]+/g, " ").trim();
-}
-
-export function trimSingleLineOrFallback(value: string | undefined, fallback: string): string {
-	const singleLine = value?.replace(/[\r\n]+/g, " ").trim();
-	return singleLine ? singleLine : fallback;
-}
-
 export function formatUnknownError(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
@@ -55,12 +46,4 @@ export function stringifyJson(value: unknown): string {
 
 export function cloneJson<T>(value: T): T {
 	return value === undefined ? value : JSON.parse(JSON.stringify(value));
-}
-
-export function slugifyName(name: string): string {
-	return name
-		.trim()
-		.toLowerCase()
-		.replace(/[^a-z0-9._-]+/g, "-")
-		.replace(/^-+|-+$/g, "");
 }

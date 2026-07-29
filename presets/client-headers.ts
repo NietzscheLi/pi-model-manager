@@ -7,7 +7,7 @@ import { cloneStringRecord, hasStringRecordEntries } from "../common.ts";
 import type { ApiKind, BuiltInClientHeaderProfileId, ClientHeaderProfileId, CompatSettings, StoredClientHeaderCapture } from "../types.ts";
 import { CLAUDE_CODE_CLIENT_HEADERS, CODEX_CLI_CLIENT_HEADERS } from "./builtin-client-headers.ts";
 
-export const ANTHROPIC_INTERLEAVED_THINKING_BETA = "interleaved-thinking-2025-05-14";
+const ANTHROPIC_INTERLEAVED_THINKING_BETA = "interleaved-thinking-2025-05-14";
 
 
 export const CLIENT_HEADER_PROFILE_LABELS: Record<ClientHeaderProfileId, string> = {
@@ -71,7 +71,7 @@ export function stripManagedClientHeaders(
 	return hasStringRecordEntries(nativeHeaders) ? nativeHeaders : undefined;
 }
 
-export function getRecommendedClientHeaderProfile(api: ApiKind): ClientHeaderProfileId {
+function getRecommendedClientHeaderProfile(api: ApiKind): ClientHeaderProfileId {
 	if (api === "anthropic-messages") return "claude-code";
 	if (api === "openai-completions" || api === "openai-responses") return "codex-cli";
 	return "disabled";
@@ -104,19 +104,6 @@ export function getClientHeadersForProfile(
 	}
 	return hasStringRecordEntries(customHeaders) ? cloneHeadersForCompat(customHeaders, api, compat) : undefined;
 }
-
-export function normalizeClientHeaderProfile(value: unknown): ClientHeaderProfileId | undefined {
-	if (value === "recommended" || value === "protocol-default") return "recommended";
-	if (value === "disabled" || value === "claude-code" || value === "codex-cli" || value === "custom") return value;
-	return undefined;
-}
-
-export function inferClientHeaderProfile(stored: unknown, modelHeaders: Record<string, string> | undefined): ClientHeaderProfileId {
-	const normalized = normalizeClientHeaderProfile(stored);
-	if (normalized) return normalized;
-	return hasStringRecordEntries(modelHeaders) ? "custom" : "recommended";
-}
-
 export function getClientHeaderProfileDisplay(profile: ClientHeaderProfileId, api: ApiKind): string {
 	const resolved = resolveClientHeaderProfile(profile, api);
 	if (profile === "recommended") {

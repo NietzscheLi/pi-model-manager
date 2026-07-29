@@ -8,7 +8,7 @@
 
 export type ApiKind = "openai-completions" | "openai-responses" | "anthropic-messages" | "google-generative-ai";
 export type ModelInputKind = "text" | "image";
-export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 export type ThinkingLevelMap = Partial<Record<ThinkingLevel, string | null>>;
 export type ReasoningMode = "enabled" | "disabled";
 export type AnthropicThinkingProtocol = "adaptive" | "legacy";
@@ -73,6 +73,8 @@ export interface StoredProvider {
 	name: string;
 	api: ApiKind;
 	baseUrl: string;
+	/** 运行时所有权，未接管的原生 Provider 不由插件生成请求头或动态注册。 */
+	managed: boolean;
 	/** 可省略；认证也可由 auth.json、/login 或 CLI --api-key 提供。 */
 	apiKey?: string;
 	/** models.json 中不由 TUI 编辑、但必须跨保存和重命名保真的原生字段。 */
@@ -89,8 +91,10 @@ export interface StoredProvider {
 }
 
 export interface StateDocument {
-	version: 1;
+	version: 2;
 	providers: Record<string, StoredProvider>;
+	/** state.json 中明确由插件创建或接管的 Provider ID。 */
+	managedProviderIds: string[];
 	requestHeaderProfiles: Record<string, StoredRequestHeaderProfile>;
 	clientHeaderCaptures: Partial<Record<BuiltInClientHeaderProfileId, StoredClientHeaderCapture>>;
 }
@@ -146,19 +150,8 @@ export interface RequestHeaderProfileDraft {
 
 export type ModelListFetchOutcome =
 	| { status: "loaded"; modelIds: string[] }
-	| { status: "failed"; message: string };
-
-export type ModelSelectionOutcome =
-	| { status: "selected"; modelId: string }
-	| { status: "manual"; fallback: string }
+	| { status: "failed"; message: string }
 	| { status: "cancelled" };
-
-export type DashboardAction =
-	| { type: "new-provider" }
-	| { type: "provider-menu"; providerId: string }
-	| { type: "model-menu"; providerId: string; modelId: string }
-	| { type: "open-models-json" }
-	| { type: "cancel" };
 
 // ========== 常量 ==========
 

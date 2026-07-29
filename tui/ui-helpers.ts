@@ -11,6 +11,7 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { getApiKeyEnvVarName, getAuthStatusText, getProviderDisplayName } from "../state-document.ts";
 import { CLIENT_HEADER_PROFILE_LABELS, getClientHeaderProfileDisplay, resolveClientHeaderProfile } from "../presets/client-headers.ts";
+import { redactUrlForDisplay } from "../sensitive-redaction.ts";
 import type {
 	ApiKind,
 	ClientHeaderProfileId,
@@ -25,16 +26,6 @@ export function maskSecret(value: string | undefined): string {
 	if (getApiKeyEnvVarName(value) || value.startsWith("!")) return value;
 	return "********";
 }
-
-function authIcon(apiKey: string | undefined): string {
-	const status = getAuthStatusText(apiKey);
-	if (status === "no apiKey") return "?";
-	if (status === "command apiKey") return "$";
-	if (status.startsWith("env missing:")) return "⚠";
-	if (status.startsWith("env ")) return "✓";
-	return "•";
-}
-
 function formatContextWindow(contextWindow: number): string {
 	if (contextWindow >= 1_000_000) return `${(contextWindow / 1_000_000).toFixed(contextWindow % 1_000_000 === 0 ? 0 : 1)}M`;
 	if (contextWindow >= 1_000) return `${Math.round(contextWindow / 1_000)}K`;
@@ -56,16 +47,12 @@ export function fitColumn(text: string, columns: number, align: ColumnAlign = "l
 	return align === "right" ? pad + clipped : clipped + pad;
 }
 
-export function joinFixedColumns(columns: readonly FixedColumn[], gap = "  "): string {
+function joinFixedColumns(columns: readonly FixedColumn[], gap = "  "): string {
 	return columns.map((column) => fitColumn(column.text, column.width, column.align)).join(gap).trimEnd();
 }
 
-export function formatTableHeader(line: string): string {
+function formatTableHeader(line: string): string {
 	return `  ${line}`;
-}
-
-function sanitizeEndpoint(value: string): string {
-	return value.replace(/([?&](?:key|api_key|api-key)=)[^&]+/gi, "$1REDACTED");
 }
 
 export function formatApiShort(api: ApiKind): string {
@@ -94,7 +81,7 @@ function getProviderProxyText(provider: StoredProvider): string {
 	return provider.httpProxyEnabled ? "proxy" : "direct";
 }
 
-export function formatProviderHeaderProfile(
+function formatProviderHeaderProfile(
 	provider: StoredProvider,
 	requestHeaderProfiles: Record<string, StoredRequestHeaderProfile> = {},
 ): string {
@@ -114,54 +101,83 @@ export function formatProviderHeaderProfile(
 	return CLIENT_HEADER_PROFILE_LABELS[provider.clientHeaderProfile];
 }
 
-export const PROVIDER_CONSOLE_HEADER = formatTableHeader(joinFixedColumns([
-	{ text: "接入", width: 22 },
-	{ text: "API", width: 9 },
-	{ text: "模型", width: 6, align: "right" },
-	{ text: "请求头", width: 15 },
-	{ text: "代理", width: 6 },
-	{ text: "认证", width: 6 },
-	{ text: "状态", width: 5 },
-]));
-
-function getModelListColumns(provider: StoredProvider): FixedColumn[] {
-	const columns: FixedColumn[] = [
-		{ text: "模型 ID", width: 30 },
-		{ text: "显示名", width: 16 },
-		{ text: "输入", width: 10 },
-		{ text: "Thinking", width: 8 },
-		{ text: "上下文", width: 7, align: "right" },
-		{ text: "输出", width: 7, align: "right" },
-	];
-	if (provider.api === "openai-responses") columns.push({ text: "Fast", width: 8 });
-	return columns;
+interface ProviderConsoleCells {
+	provider: string;
+	api: string;
+	models: string;
+	headers: string;
+	proxy: string;
+	auth: string;
+	status: string;
 }
 
-export function formatModelListHeader(provider: StoredProvider): string {
-	return formatTableHeader(joinFixedColumns(getModelListColumns(provider)));
+function getProviderConsoleColumns(cells: ProviderConsoleCells, availableWidth: number): FixedColumn[] {
+	if (availableWidth >= 81) {
+		return [
+			{ text: cells.provider, width: 22 },
+			{ text: cells.api, width: 9 },
+			{ text: cells.models, width: 6, align: "right" },
+			{ text: cells.headers, width: 15 },
+			{ text: cells.proxy, width: 6 },
+			{ text: cells.auth, width: 6 },
+			{ text: cells.status, width: 5 },
+		];
+	}
+	if (availableWidth >= 64) {
+		return [
+			{ text: cells.provider, width: 20 },
+			{ text: cells.api, width: 9 },
+			{ text: cells.models, width: 6, align: "right" },
+			{ text: cells.proxy, width: 6 },
+			{ text: cells.auth, width: 6 },
+			{ text: cells.status, width: 5 },
+		];
+	}
+	if (availableWidth >= 48) {
+		return [
+			{ text: cells.provider, width: 20 },
+			{ text: cells.api, width: 9 },
+			{ text: cells.models, width: 6, align: "right" },
+			{ text: cells.status, width: 5 },
+		];
+	}
+	return [
+		{ text: cells.provider, width: Math.max(10, availableWidth - 26) },
+		{ text: cells.api, width: 9 },
+		{ text: cells.models, width: 6, align: "right" },
+		{ text: cells.status, width: 5 },
+	];
+}
+
+export function formatProviderConsoleHeader(menuWidth: number): string {
+	return formatTableHeader(joinFixedColumns(getProviderConsoleColumns({
+		provider: "接入",
+		api: "API",
+		models: "模型",
+		headers: "请求头",
+		proxy: "代理",
+		auth: "认证",
+		status: "状态",
+	}, Math.max(0, menuWidth - 2))));
 }
 
 export function formatProviderConsoleRow(
 	providerId: string,
 	provider: StoredProvider,
 	requestHeaderProfiles: Record<string, StoredRequestHeaderProfile> = {},
+	availableWidth = 81,
 ): string {
 	const name = getProviderDisplayName(providerId, provider);
 	const displayName = name === providerId ? providerId : `${name} (${providerId})`;
-	return joinFixedColumns([
-		{ text: displayName, width: 22 },
-		{ text: formatApiShort(provider.api), width: 9 },
-		{ text: String(provider.models.length), width: 6, align: "right" },
-		{ text: formatProviderHeaderProfile(provider, requestHeaderProfiles), width: 15 },
-		{ text: getProviderProxyText(provider), width: 6 },
-		{ text: getAuthKind(provider.apiKey), width: 6 },
-		{ text: getProviderStatus(provider), width: 5 },
-	]);
-}
-export function formatProviderRow(providerId: string, provider: StoredProvider): string {
-	const name = getProviderDisplayName(providerId, provider);
-	const head = name === providerId ? providerId : `${name} (${providerId})`;
-	return `${head} · ${provider.api} · ${provider.models.length}模型 · ${authIcon(provider.apiKey)}`;
+	return joinFixedColumns(getProviderConsoleColumns({
+		provider: displayName,
+		api: formatApiShort(provider.api),
+		models: String(provider.models.length),
+		headers: formatProviderHeaderProfile(provider, requestHeaderProfiles),
+		proxy: getProviderProxyText(provider),
+		auth: getAuthKind(provider.apiKey),
+		status: getProviderStatus(provider),
+	}, availableWidth));
 }
 
 export function formatProviderDetailLines(
@@ -174,8 +190,8 @@ export function formatProviderDetailLines(
 	const modelIds = provider.models.map((model) => model.id).join(", ") || "<无模型>";
 	return [
 		title,
-		`  endpoint  ${sanitizeEndpoint(provider.baseUrl)}`,
-		`  proxy     ${provider.httpProxyEnabled ? sanitizeEndpoint(provider.httpProxyUrl ?? "http://127.0.0.1:7890") : "direct"}`,
+		`  endpoint  ${redactUrlForDisplay(provider.baseUrl)}`,
+		`  proxy     ${provider.httpProxyEnabled ? redactUrlForDisplay(provider.httpProxyUrl ?? "http://127.0.0.1:7890") : "direct"}`,
 		`  api       ${formatApiShort(provider.api)} · headers ${formatProviderHeaderProfile(provider, requestHeaderProfiles)} · auth ${getAuthKind(provider.apiKey)}`,
 		`  models    ${modelIds}`,
 	];
@@ -189,26 +205,8 @@ export function formatProviderSummaryLine(
 }
 
 export function formatProviderEndpointLine(provider: StoredProvider): string {
-	const proxy = provider.httpProxyEnabled ? ` · proxy ${sanitizeEndpoint(provider.httpProxyUrl ?? "http://127.0.0.1:7890")}` : "";
-	return `endpoint  ${sanitizeEndpoint(provider.baseUrl)}${proxy}`;
-}
-
-function getThinkingFlag(model: StoredModel): string | undefined {
-	if (!model.reasoning) return undefined;
-	const map = model.thinkingLevelMap;
-	if (map?.max === "max" && map.xhigh === "xhigh") return "think:xhigh/max";
-	if (map?.max === "max") return "think:max";
-	return "think";
-}
-
-export function formatModelRow(model: StoredModel): string {
-	const flags: string[] = [];
-	const thinkingFlag = getThinkingFlag(model);
-	if (thinkingFlag) flags.push(thinkingFlag);
-	flags.push(model.input.includes("image") ? "视觉" : "文本");
-	flags.push(`${formatContextWindow(model.contextWindow)}ctx`);
-	const suffix = model.name && model.name !== model.id ? ` “${model.name}”` : "";
-	return `${model.id}${suffix} · ${flags.join(" · ")}`;
+	const proxy = provider.httpProxyEnabled ? ` · proxy ${redactUrlForDisplay(provider.httpProxyUrl ?? "http://127.0.0.1:7890")}` : "";
+	return `endpoint  ${redactUrlForDisplay(provider.baseUrl)}${proxy}`;
 }
 
 function formatModelNameCell(model: StoredModel): string {
@@ -223,30 +221,82 @@ function formatModelThinkingCell(model: StoredModel): string {
 	return model.reasoning ? "开" : "关";
 }
 
-export function formatModelConsoleRow(model: StoredModel): string {
-	return joinFixedColumns([
-		{ text: model.id, width: 34 },
-		{ text: formatModelInputCell(model), width: 12 },
-		{ text: formatModelThinkingCell(model), width: 8 },
-		{ text: formatContextWindow(model.contextWindow), width: 7, align: "right" },
-		{ text: formatContextWindow(model.maxTokens), width: 7, align: "right" },
-		{ text: model.openAIServiceTier === "priority" ? "priority" : "-", width: 8 },
-	]);
+interface ModelListCells {
+	modelId: string;
+	name: string;
+	input: string;
+	thinking: string;
+	context: string;
+	output: string;
+	fast: string;
 }
 
-export function formatModelListRow(provider: StoredProvider, model: StoredModel): string {
-	const columns: FixedColumn[] = [
-		{ text: model.id, width: 30 },
-		{ text: formatModelNameCell(model), width: 16 },
-		{ text: formatModelInputCell(model), width: 10 },
-		{ text: formatModelThinkingCell(model), width: 8 },
-		{ text: formatContextWindow(model.contextWindow), width: 7, align: "right" },
-		{ text: formatContextWindow(model.maxTokens), width: 7, align: "right" },
-	];
-	if (provider.api === "openai-responses") {
-		columns.push({ text: model.openAIServiceTier === "priority" ? "priority" : "off", width: 8 });
+function getModelListColumns(provider: StoredProvider, cells: ModelListCells, availableWidth: number): FixedColumn[] {
+	const fullWidth = provider.api === "openai-responses" ? 98 : 88;
+	if (availableWidth >= fullWidth) {
+		const columns: FixedColumn[] = [
+			{ text: cells.modelId, width: 30 },
+			{ text: cells.name, width: 16 },
+			{ text: cells.input, width: 10 },
+			{ text: cells.thinking, width: 8 },
+			{ text: cells.context, width: 7, align: "right" },
+			{ text: cells.output, width: 7, align: "right" },
+		];
+		if (provider.api === "openai-responses") columns.push({ text: cells.fast, width: 8 });
+		return columns;
 	}
-	return joinFixedColumns(columns);
+	if (availableWidth >= 75) {
+		return [
+			{ text: cells.modelId, width: 28 },
+			{ text: cells.name, width: 14 },
+			{ text: cells.input, width: 10 },
+			{ text: cells.thinking, width: 8 },
+			{ text: cells.context, width: 7, align: "right" },
+		];
+	}
+	if (availableWidth >= 57) {
+		return [
+			{ text: cells.modelId, width: 26 },
+			{ text: cells.input, width: 10 },
+			{ text: cells.thinking, width: 8 },
+			{ text: cells.context, width: 7, align: "right" },
+		];
+	}
+	return [
+		{ text: cells.modelId, width: Math.max(10, availableWidth - 22) },
+		{ text: cells.input, width: 10 },
+		{ text: cells.thinking, width: 8 },
+	];
+}
+
+function getModelListCells(model?: StoredModel): ModelListCells {
+	return model
+		? {
+			modelId: model.id,
+			name: formatModelNameCell(model),
+			input: formatModelInputCell(model),
+			thinking: formatModelThinkingCell(model),
+			context: formatContextWindow(model.contextWindow),
+			output: formatContextWindow(model.maxTokens),
+			fast: model.openAIServiceTier === "priority" ? "priority" : "off",
+		}
+		: {
+			modelId: "模型 ID",
+			name: "显示名",
+			input: "输入",
+			thinking: "Thinking",
+			context: "上下文",
+			output: "输出",
+			fast: "Fast",
+		};
+}
+
+export function formatModelListHeader(provider: StoredProvider, menuWidth = 100): string {
+	return formatTableHeader(joinFixedColumns(getModelListColumns(provider, getModelListCells(), Math.max(0, menuWidth - 2))));
+}
+
+export function formatModelListRow(provider: StoredProvider, model: StoredModel, availableWidth = 98): string {
+	return joinFixedColumns(getModelListColumns(provider, getModelListCells(model), availableWidth));
 }
 
 export const API_CHOICES: { id: ApiKind; label: string }[] = [

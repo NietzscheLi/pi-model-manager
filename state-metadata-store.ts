@@ -5,10 +5,9 @@
 // profile 库、抓包缓存和 OpenAI Responses service_tier 等原生字段无法表达的元数据。
 
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { atomicWriteText } from "./atomic-write.ts";
 import { cloneJson, isObjectRecord, stringifyJson, stripJsonNoise } from "./common.ts";
+import { readStableTextFileSnapshot, type FileSignature } from "./file-snapshot.ts";
 import type {
 	ApiKind,
 	BuiltInClientHeaderProfileId,
@@ -25,8 +24,9 @@ import type {
 	TokenCost,
 } from "./types.ts";
 
-const STATE_DIR = join(getAgentDir(), "extensions", "pi-model-manager");
+export const STATE_DIR = join(getAgentDir(), "extensions", "pi-model-manager");
 export const STATE_PATH = join(STATE_DIR, "state.json");
+export const CONFIGURATION_TRANSACTION_PATH = join(STATE_DIR, "config-transaction.json");
 
 const API_KINDS = new Set<ApiKind>(["openai-completions", "openai-responses", "anthropic-messages", "google-generative-ai"]);
 const CLIENT_HEADER_PROFILE_IDS = new Set<ClientHeaderProfileId>(["recommended", "disabled", "claude-code", "codex-cli", "custom"]);
@@ -36,7 +36,7 @@ const INPUT_KINDS = new Set<ModelInputKind>(["text", "image"]);
 const THINKING_LEVELS = new Set(Object.freeze(["off", "minimal", "low", "medium", "high", "xhigh", "max"]));
 const OPENAI_SERVICE_TIERS = new Set<OpenAIServiceTier>(["priority"]);
 
-export interface ProviderMetadata {
+interface ProviderMetadata {
 	clientHeaderProfile?: ClientHeaderProfileId;
 	requestHeaderProfileId?: string;
 	customClientHeaders?: Record<string, string>;
@@ -44,12 +44,14 @@ export interface ProviderMetadata {
 	httpProxyUrl?: string;
 }
 
-export interface ModelMetadata {
+interface ModelMetadata {
 	openAIServiceTier?: OpenAIServiceTier;
 }
 
 export interface MetadataDocument {
-	version: 2;
+	version: 4;
+	/** 明确由插件创建或接管的 Provider ID。 */
+	managedProviderIds: string[];
 	providers: Record<string, ProviderMetadata>;
 	models: Record<string, ModelMetadata>;
 	requestHeaderProfiles: Record<string, StoredRequestHeaderProfile>;
@@ -59,16 +61,18 @@ export interface MetadataDocument {
 export interface ParsedMetadataStateFile {
 	metadata: MetadataDocument;
 	legacyProviders: StateDocument["providers"];
+	requirePluginManagedProviderMarker: boolean;
+}
+
+export interface MetadataStateSnapshot extends ParsedMetadataStateFile {
+	source: string | undefined;
+	signature: FileSignature;
+	contentHash: string;
 }
 
 export function createEmptyMetadata(): MetadataDocument {
-	return { version: 2, providers: {}, models: {}, requestHeaderProfiles: {}, clientHeaderCaptures: {} };
+	return { version: 4, managedProviderIds: [], providers: {}, models: {}, requestHeaderProfiles: {}, clientHeaderCaptures: {} };
 }
-
-function isNotFound(error: unknown): boolean {
-	return error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "ENOENT";
-}
-
 function fail(path: string, message: string): never {
 	throw new Error(`state.json ${path}: ${message}`);
 }
@@ -113,6 +117,14 @@ function readOptionalStringRecord(record: Record<string, unknown>, key: string, 
 	const value = record[key];
 	if (value === undefined) return undefined;
 	return readStringRecord(value, `${path}.${key}`);
+}
+
+function readProviderIdList(value: unknown, path: string): string[] {
+	if (!Array.isArray(value)) fail(path, "必须是字符串数组");
+	return [...new Set(value.map((item, index) => {
+		if (typeof item !== "string" || !item.trim()) fail(`${path}[${index}]`, "必须是非空字符串");
+		return item;
+	}))];
 }
 
 function readObjectRecord(record: Record<string, unknown>, key: string, path: string): Record<string, unknown> | undefined {
@@ -257,18 +269,21 @@ function inferProviderHeaderProfile(models: StoredModel[]): HeaderProfileSelecti
 	) ?? selections[0] ?? { clientHeaderProfile: "recommended" };
 }
 
-function readStoredProvider(raw: unknown, path: string): StoredProvider {
+function readStoredProvider(raw: unknown, path: string, managed: boolean): StoredProvider {
 	if (!isObjectRecord(raw)) fail(path, "必须是对象");
 	const models = raw.models;
 	if (!Array.isArray(models)) fail(`${path}.models`, "必须是数组");
 	const storedModels = models.map((model, index) => readStoredModel(model, `${path}.models[${index}]`));
 	const inferredProfile = inferProviderHeaderProfile(storedModels);
-	const clientHeaderProfile = readOptionalClientHeaderProfile(raw, "clientHeaderProfile", path) ?? inferredProfile.clientHeaderProfile;
+	const clientHeaderProfile = managed
+		? readOptionalClientHeaderProfile(raw, "clientHeaderProfile", path) ?? inferredProfile.clientHeaderProfile
+		: "disabled";
 
 	const provider: StoredProvider = {
 		name: readRequiredString(raw, "name", path),
 		api: readApiKind(raw, "api", path),
 		baseUrl: readRequiredString(raw, "baseUrl", path),
+		managed,
 		clientHeaderProfile,
 		models: storedModels,
 	};
@@ -278,9 +293,9 @@ function readStoredProvider(raw: unknown, path: string): StoredProvider {
 	const authHeader = readOptionalBoolean(raw, "authHeader", path);
 	if (authHeader !== undefined) provider.authHeader = authHeader;
 	const requestHeaderProfileId = readOptionalString(raw, "requestHeaderProfileId", path) ?? inferredProfile.requestHeaderProfileId;
-	if (clientHeaderProfile === "custom" && requestHeaderProfileId !== undefined) provider.requestHeaderProfileId = requestHeaderProfileId;
+	if (managed && clientHeaderProfile === "custom" && requestHeaderProfileId !== undefined) provider.requestHeaderProfileId = requestHeaderProfileId;
 	const customClientHeaders = readOptionalStringRecord(raw, "customClientHeaders", path) ?? inferredProfile.customClientHeaders;
-	if (clientHeaderProfile === "custom" && customClientHeaders) provider.customClientHeaders = customClientHeaders;
+	if (managed && clientHeaderProfile === "custom" && customClientHeaders) provider.customClientHeaders = customClientHeaders;
 	const httpProxyEnabled = readOptionalBoolean(raw, "httpProxyEnabled", path);
 	if (httpProxyEnabled !== undefined) provider.httpProxyEnabled = httpProxyEnabled;
 	const httpProxyUrl = readOptionalString(raw, "httpProxyUrl", path);
@@ -368,6 +383,7 @@ function extractModelMetadata(model: StoredModel): ModelMetadata {
 
 function extractMetadataFromLegacyState(legacy: StateDocument): MetadataDocument {
 	const metadata = createEmptyMetadata();
+	metadata.managedProviderIds = Object.keys(legacy.providers);
 	metadata.requestHeaderProfiles = cloneJson(legacy.requestHeaderProfiles);
 	metadata.clientHeaderCaptures = cloneJson(legacy.clientHeaderCaptures);
 	for (const [providerId, provider] of Object.entries(legacy.providers)) {
@@ -386,12 +402,16 @@ function parseLegacyState(parsed: Record<string, unknown>): ParsedMetadataStateF
 	if (rawProviders !== undefined) {
 		if (!isObjectRecord(rawProviders)) fail(".providers", "必须是对象");
 		for (const [providerId, provider] of Object.entries(rawProviders)) {
-			providers[providerId] = readStoredProvider(provider, `.providers.${providerId}`);
+			providers[providerId] = readStoredProvider(provider, `.providers.${providerId}`, true);
 		}
 	}
 	const common = readCommonMetadataFields(parsed, createEmptyMetadata());
-	const legacy = { version: 1, providers, requestHeaderProfiles: common.requestHeaderProfiles, clientHeaderCaptures: common.clientHeaderCaptures } satisfies StateDocument;
-	return { metadata: extractMetadataFromLegacyState(legacy), legacyProviders: providers };
+	const legacy = { version: 2, providers, managedProviderIds: Object.keys(providers), requestHeaderProfiles: common.requestHeaderProfiles, clientHeaderCaptures: common.clientHeaderCaptures } satisfies StateDocument;
+	return {
+		metadata: extractMetadataFromLegacyState(legacy),
+		legacyProviders: providers,
+		requirePluginManagedProviderMarker: false,
+	};
 }
 
 function parseMetadataState(parsed: Record<string, unknown>): ParsedMetadataStateFile {
@@ -410,32 +430,47 @@ function parseMetadataState(parsed: Record<string, unknown>): ParsedMetadataStat
 			metadata.models[fullModelId] = readModelMetadata(model, `.models.${fullModelId}`);
 		}
 	}
-	return { metadata, legacyProviders: {} };
+	metadata.managedProviderIds = parsed.managedProviderIds === undefined
+		? [...new Set([
+			...Object.keys(metadata.providers),
+			...Object.keys(metadata.models).flatMap((fullModelId) => {
+				const separatorIndex = fullModelId.indexOf("/");
+				return separatorIndex > 0 ? [fullModelId.slice(0, separatorIndex)] : [];
+			}),
+		])]
+		: readProviderIdList(parsed.managedProviderIds, ".managedProviderIds");
+	return {
+		metadata,
+		legacyProviders: {},
+		requirePluginManagedProviderMarker: parsed.version === 4,
+	};
 }
 
 function parseStateFile(source: string): ParsedMetadataStateFile {
 	const parsed = JSON.parse(stripJsonNoise(source));
 	if (!isObjectRecord(parsed)) fail("", "根节点必须是对象");
-	if (parsed.version === 2) return parseMetadataState(parsed);
+	if (parsed.version === 4 || parsed.version === 3 || parsed.version === 2) return parseMetadataState(parsed);
 	if (parsed.version === undefined || parsed.version === 1) return parseLegacyState(parsed);
 	fail(".version", `不支持的版本：${String(parsed.version)}`);
 }
 
-export async function readMetadataStateFile(): Promise<ParsedMetadataStateFile> {
-	try {
-		const source = await readFile(STATE_PATH, "utf8");
-		return parseStateFile(source);
-	} catch (error) {
-		if (isNotFound(error)) return { metadata: createEmptyMetadata(), legacyProviders: {} };
-		throw error;
-	}
+export async function readMetadataStateSnapshot(): Promise<MetadataStateSnapshot> {
+	const snapshot = await readStableTextFileSnapshot(STATE_PATH);
+	const parsed = snapshot.source === undefined
+		? { metadata: createEmptyMetadata(), legacyProviders: {}, requirePluginManagedProviderMarker: true }
+		: parseStateFile(snapshot.source);
+	return { ...parsed, source: snapshot.source, signature: snapshot.signature, contentHash: snapshot.contentHash };
 }
 
 function extractMetadata(state: StateDocument): MetadataDocument {
 	const metadata = createEmptyMetadata();
+	metadata.managedProviderIds = Object.entries(state.providers)
+		.filter(([, provider]) => provider.managed)
+		.map(([providerId]) => providerId);
 	metadata.requestHeaderProfiles = cloneJson(state.requestHeaderProfiles);
 	metadata.clientHeaderCaptures = cloneJson(state.clientHeaderCaptures);
 	for (const [providerId, provider] of Object.entries(state.providers)) {
+		if (!provider.managed) continue;
 		const providerMetadata = extractProviderMetadata(provider);
 		if (Object.keys(providerMetadata).length > 0) metadata.providers[providerId] = providerMetadata;
 		for (const model of provider.models) {
@@ -446,10 +481,9 @@ function extractMetadata(state: StateDocument): MetadataDocument {
 	return metadata;
 }
 
-export async function writeMetadataState(state: StateDocument): Promise<void> {
-	await atomicWriteText(STATE_PATH, stringifyJson(extractMetadata(state)));
+export function serializeMetadataState(state: StateDocument): string {
+	return stringifyJson(extractMetadata(state));
 }
-
 export function getStatePath(): string {
 	return STATE_PATH;
 }

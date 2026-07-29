@@ -6,10 +6,9 @@
 // 写入后由调用方执行 ctx.modelRegistry.refresh()，保持 pi 原生 models.json 语义。
 
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { atomicWriteText } from "./atomic-write.ts";
-import { cloneJson, isObjectRecord, stringifyJson, stripJsonNoise } from "./common.ts";
+import { cloneJson, isObjectRecord, stripJsonNoise } from "./common.ts";
+import { readStableTextFileSnapshot, type FileSignature } from "./file-snapshot.ts";
 import type { TokenCost } from "./types.ts";
 
 export const MODELS_JSON_PATH = join(getAgentDir(), "models.json");
@@ -50,22 +49,42 @@ export interface ModelsJsonDocument {
 	[key: string]: unknown;
 }
 
-export interface FileSignature {
-	exists: boolean;
-	mtimeMs: number;
-	ctimeMs: number;
-	size: number;
-	ino: number;
+const PLUGIN_PROVIDER_METADATA_KEY = "piModelManager";
+
+export function hasPluginManagedProviderMarker(entry: ModelsJsonProviderEntry): boolean {
+	const metadata = entry[PLUGIN_PROVIDER_METADATA_KEY];
+	return isObjectRecord(metadata) && metadata.managed === true;
 }
+
+export function markProviderEntryAsPluginManaged(entry: ModelsJsonProviderEntry): ModelsJsonProviderEntry {
+	const next = cloneJson(entry);
+	const existing = isObjectRecord(next[PLUGIN_PROVIDER_METADATA_KEY])
+		? next[PLUGIN_PROVIDER_METADATA_KEY] as Record<string, unknown>
+		: {};
+	next[PLUGIN_PROVIDER_METADATA_KEY] = { ...existing, managed: true };
+	return next;
+}
+
+export function markManagedProvidersInDoc(
+	doc: ModelsJsonDocument,
+	providerIds: readonly string[],
+): ModelsJsonDocument {
+	let next = doc;
+	for (const providerId of providerIds) {
+		const entry = next.providers[providerId];
+		if (!entry || hasPluginManagedProviderMarker(entry)) continue;
+		if (next === doc) next = cloneJson(doc);
+		next.providers[providerId] = markProviderEntryAsPluginManaged(entry);
+	}
+	return next;
+}
+
 
 export interface ModelsJsonSnapshot {
 	document: ModelsJsonDocument;
-	signature: FileSignature;
-}
-
-export interface StableTextFileSnapshot {
 	source: string | undefined;
 	signature: FileSignature;
+	contentHash: string;
 }
 
 // ========== IO ==========
@@ -74,51 +93,6 @@ function createEmpty(): ModelsJsonDocument {
 	return { providers: {} };
 }
 
-const MISSING_FILE_SIGNATURE: FileSignature = { exists: false, mtimeMs: 0, ctimeMs: 0, size: -1, ino: 0 };
-
-function isNotFound(error: unknown): boolean {
-	return error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "ENOENT";
-}
-
-export async function readFileSignature(path: string): Promise<FileSignature> {
-	try {
-		const stats = await stat(path);
-		return { exists: true, mtimeMs: stats.mtimeMs, ctimeMs: stats.ctimeMs, size: stats.size, ino: stats.ino };
-	} catch (error) {
-		if (isNotFound(error)) return MISSING_FILE_SIGNATURE;
-		throw error;
-	}
-}
-
-export function sameFileSignature(a: FileSignature, b: FileSignature): boolean {
-	return a.exists === b.exists
-		&& a.mtimeMs === b.mtimeMs
-		&& a.ctimeMs === b.ctimeMs
-		&& a.size === b.size
-		&& a.ino === b.ino;
-}
-
-/** 文件在读取窗口内变化时重试，避免把旧内容和新签名组合成同一个 snapshot。 */
-export async function readStableTextFileSnapshot(path: string): Promise<StableTextFileSnapshot> {
-	for (let attempt = 0; attempt < 3; attempt += 1) {
-		const before = await readFileSignature(path);
-		if (!before.exists) {
-			const after = await readFileSignature(path);
-			if (sameFileSignature(before, after)) return { source: undefined, signature: after };
-			continue;
-		}
-		let source: string;
-		try {
-			source = await readFile(path, "utf8");
-		} catch (error) {
-			if (isNotFound(error)) continue;
-			throw error;
-		}
-		const after = await readFileSignature(path);
-		if (sameFileSignature(before, after)) return { source, signature: after };
-	}
-	throw new Error(`${path} 在读取期间持续变化；请停止其它写入后重试。`);
-}
 
 function parseModelsJson(source: string): ModelsJsonDocument {
 	const parsed = JSON.parse(stripJsonNoise(source));
@@ -131,26 +105,11 @@ export async function readModelsJsonSnapshot(): Promise<ModelsJsonSnapshot> {
 	const snapshot = await readStableTextFileSnapshot(MODELS_JSON_PATH);
 	return {
 		document: snapshot.source === undefined ? createEmpty() : parseModelsJson(snapshot.source),
+		source: snapshot.source,
 		signature: snapshot.signature,
+		contentHash: snapshot.contentHash,
 	};
 }
-
-export async function readModelsJson(): Promise<ModelsJsonDocument> {
-	return (await readModelsJsonSnapshot()).document;
-}
-
-export async function writeModelsJson(doc: ModelsJsonDocument): Promise<void> {
-	await atomicWriteText(MODELS_JSON_PATH, stringifyJson(doc));
-}
-
-export async function writeModelsJsonSnapshot(snapshot: ModelsJsonSnapshot, doc: ModelsJsonDocument): Promise<void> {
-	const current = await readFileSignature(MODELS_JSON_PATH);
-	if (!sameFileSignature(snapshot.signature, current)) {
-		throw new Error("models.json 已被其它进程或编辑器修改；请重新打开 /model-manager 后再保存。");
-	}
-	await writeModelsJson(doc);
-}
-
 export function getModelsJsonPath(): string {
 	return MODELS_JSON_PATH;
 }
@@ -198,10 +157,15 @@ export function setModelInDoc(
 	const next = cloneJson(doc);
 	const provider = next.providers[providerId];
 	if (!provider) throw new Error(`models.json 中不存在接入：${providerId}`);
-	const retained = (provider.models ?? []).filter(
-		(m) => m.id !== model.id && m.id !== replacedModelId,
-	);
-	provider.models = [...retained, model];
+	let replaced = false;
+	const models = (provider.models ?? []).flatMap((current) => {
+		if (current.id !== model.id && current.id !== replacedModelId) return [current];
+		if (replaced) return [];
+		replaced = true;
+		return [model];
+	});
+	if (!replaced) models.push(model);
+	provider.models = models;
 	return next;
 }
 

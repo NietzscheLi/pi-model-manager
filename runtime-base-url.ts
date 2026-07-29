@@ -1,7 +1,4 @@
-// runtime-base-url.ts
-//
-// 将用户在 TUI 中填写的 Base URL 转成 pi 各内置 SDK 实际需要的 baseUrl。
-// 约定：state.json 保存用户输入；注册到 pi 和 bootstrap 到 models.json 时使用运行时 URL。
+// 将用户填写的 Base URL 转成各协议实际请求根地址，并提供保留 query/hash 的路径追加。
 
 import type { ApiKind } from "./types.ts";
 
@@ -9,41 +6,69 @@ function trimTrailingSlashes(value: string): string {
 	return value.trim().replace(/\/+$/, "");
 }
 
-function stripTrailingV1(baseUrl: string): string {
-	const trimmed = trimTrailingSlashes(baseUrl);
-	return trimmed.toLowerCase().endsWith("/v1") ? trimmed.slice(0, -3) : trimmed;
+function parseBaseUrl(baseUrl: string): URL | undefined {
+	try {
+		return new URL(baseUrl.trim());
+	} catch {
+		return undefined;
+	}
 }
 
-function hasRootPathWithoutQueryOrHash(url: URL): boolean {
-	return (url.pathname === "" || url.pathname === "/") && !url.search && !url.hash;
+function trimPathTrailingSlashes(pathname: string): string {
+	const trimmed = pathname.replace(/\/+$/, "");
+	return trimmed || "/";
+}
+
+function hasRootPath(url: URL): boolean {
+	return trimPathTrailingSlashes(url.pathname) === "/";
+}
+
+function appendPathSegments(url: URL, segments: string[]): string {
+	const basePath = trimPathTrailingSlashes(url.pathname);
+	const suffix = segments.map((segment) => segment.replace(/^\/+|\/+$/g, "")).filter(Boolean).join("/");
+	url.pathname = `${basePath === "/" ? "" : basePath}/${suffix}` || "/";
+	return url.toString();
+}
+
+export function appendUrlPath(baseUrl: string, ...segments: string[]): string {
+	const parsed = parseBaseUrl(baseUrl);
+	if (parsed) return appendPathSegments(parsed, segments);
+	const suffix = segments.map((segment) => segment.replace(/^\/+|\/+$/g, "")).filter(Boolean).join("/");
+	return `${trimTrailingSlashes(baseUrl)}/${suffix}`;
+}
+
+function stripTrailingV1(baseUrl: string): string {
+	const parsed = parseBaseUrl(baseUrl);
+	if (!parsed) {
+		const trimmed = trimTrailingSlashes(baseUrl);
+		return trimmed.toLowerCase().endsWith("/v1") ? trimmed.slice(0, -3) : trimmed;
+	}
+	const path = trimPathTrailingSlashes(parsed.pathname);
+	if (path.toLowerCase().endsWith("/v1")) {
+		parsed.pathname = path.slice(0, -3) || "/";
+	} else {
+		parsed.pathname = path;
+	}
+	return parsed.toString();
 }
 
 function appendV1ForRootUrl(baseUrl: string): string {
-	const trimmed = trimTrailingSlashes(baseUrl);
-	try {
-		const parsed = new URL(trimmed);
-		if (hasRootPathWithoutQueryOrHash(parsed)) {
-			return `${trimmed}/v1`;
-		}
-	} catch {
-		return trimmed;
-	}
-	return trimmed;
+	const parsed = parseBaseUrl(baseUrl);
+	if (!parsed) return trimTrailingSlashes(baseUrl);
+	if (hasRootPath(parsed)) return appendPathSegments(parsed, ["v1"]);
+	parsed.pathname = trimPathTrailingSlashes(parsed.pathname);
+	return parsed.toString();
 }
 
 function appendGoogleGenerativeApiVersionForRootUrl(baseUrl: string): string {
-	const trimmed = trimTrailingSlashes(baseUrl);
-	try {
-		const parsed = new URL(trimmed);
-		// Google Generative Language 的根域名不是可直接请求的模型 API 根路径；
-		// pi 的 google-generative-ai 适配器需要带版本段的 baseUrl。
-		if (parsed.hostname === "generativelanguage.googleapis.com" && hasRootPathWithoutQueryOrHash(parsed)) {
-			return `${trimmed}/v1beta`;
-		}
-	} catch {
-		return trimmed;
+	const parsed = parseBaseUrl(baseUrl);
+	if (!parsed) return trimTrailingSlashes(baseUrl);
+	// Google Generative Language 的根域名不是可直接请求的模型 API 根路径。
+	if (parsed.hostname === "generativelanguage.googleapis.com" && hasRootPath(parsed)) {
+		return appendPathSegments(parsed, ["v1beta"]);
 	}
-	return trimmed;
+	parsed.pathname = trimPathTrailingSlashes(parsed.pathname);
+	return parsed.toString();
 }
 
 export function resolveRuntimeBaseUrl(api: ApiKind, baseUrl: string): string {

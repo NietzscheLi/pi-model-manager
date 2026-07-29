@@ -45,7 +45,7 @@ function hasNonEmptyInstructions(payload: PayloadRecord): boolean {
 	return typeof payload.instructions === "string" && payload.instructions.trim().length > 0;
 }
 
-export function normalizeOpenAIResponsesInstructionsPayload(payload: unknown): PayloadRecord | undefined {
+function normalizeOpenAIResponsesInstructionsPayload(payload: unknown): PayloadRecord | undefined {
 	if (!isPayloadRecord(payload)) return undefined;
 	if (hasNonEmptyInstructions(payload)) return undefined;
 

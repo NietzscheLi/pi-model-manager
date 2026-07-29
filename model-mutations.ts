@@ -5,26 +5,35 @@
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { formatUnknownError } from "./common.ts";
+import { isBuiltinProviderId } from "./builtin-model-catalog.ts";
 import {
 	persistManagedConfiguration,
+	persistModelConfiguration,
+	persistModelDeletionConfiguration,
 	persistModelRenameConfiguration,
 	persistProviderRenameConfiguration,
 } from "./configuration-persistence.ts";
 import {
 	enableModelForNextPiStart,
 	removeModelFromNextPiStart,
+	removeProviderFromNextPiStart,
 	replaceProviderInEnabledModelsForNextPiStart,
 	verifyNativeModelAvailable,
 } from "./models-json-sync.ts";
 import { reconcileProvider, unregisterManagedProvider } from "./provider-registrar.ts";
 import { withModelRescue } from "./rescue.ts";
 import { deleteModelFromDocument, deleteProviderFromDocument, getModelFullId, upsertModelInDocument, upsertProviderInDocument } from "./state-document.ts";
-import { readState } from "./state-store.ts";
 import type { StateDocument, StoredProvider } from "./types.ts";
 import type { createModelDraftForStoredProvider, createProviderDraft } from "./state-document.ts";
 
 type ProviderDraft = ReturnType<typeof createProviderDraft>;
 type ModelDraft = ReturnType<typeof createModelDraftForStoredProvider>;
+
+async function assertProviderIsEditable(providerId: string): Promise<void> {
+	if (await isBuiltinProviderId(providerId)) {
+		throw new Error(`内置接入 ${providerId} 不允许通过 /model-manager 编辑或删除。`);
+	}
+}
 
 function formatEnableNote(mode: "all-enabled" | "updated" | "unchanged", scope?: "global" | "project"): string {
 	if (mode === "all-enabled") return "当前未限制 enabledModels，重启后默认可选";
@@ -70,11 +79,19 @@ async function reconcilePersistedProviderRuntime(
 export async function saveProviderConfiguration(
 	pi: ExtensionAPI,
 	ctx: ExtensionCommandContext,
-	state: StateDocument,
+	_state: StateDocument,
 	draft: ProviderDraft,
 	oldProviderId: string | undefined,
 ): Promise<void> {
-	const nextState = upsertProviderInDocument(state, oldProviderId, draft);
+	await assertProviderIsEditable(draft.providerId);
+	if (oldProviderId) await assertProviderIsEditable(oldProviderId);
+	const prepare = (latest: StateDocument) => {
+		const document = upsertProviderInDocument(latest, oldProviderId, draft);
+		return { document, changedProviderIds: [draft.providerId], removedProviderIds: [] };
+	};
+	const nextState = oldProviderId && oldProviderId !== draft.providerId
+		? await persistProviderRenameConfiguration(ctx, prepare, oldProviderId, draft.providerId)
+		: await persistManagedConfiguration(ctx, prepare);
 	const stored = nextState.providers[draft.providerId]!;
 	const renamedCurrentModelId = oldProviderId
 		&& oldProviderId !== draft.providerId
@@ -82,11 +99,6 @@ export async function saveProviderConfiguration(
 		&& stored.models.some((model) => model.id === ctx.model?.id)
 		? ctx.model.id
 		: undefined;
-	if (oldProviderId && oldProviderId !== draft.providerId) {
-		await persistProviderRenameConfiguration(ctx, nextState, oldProviderId, draft.providerId);
-	} else {
-		await persistManagedConfiguration(ctx, nextState);
-	}
 	await reconcilePersistedProviderRuntime(pi, draft.providerId, stored, nextState);
 	if (oldProviderId && oldProviderId !== draft.providerId) unregisterManagedProvider(pi, oldProviderId);
 
@@ -117,21 +129,23 @@ export async function saveProviderConfiguration(
 export async function saveModelConfiguration(
 	pi: ExtensionAPI,
 	ctx: ExtensionCommandContext,
-	state: StateDocument,
+	_state: StateDocument,
 	draft: ModelDraft,
 	replacedModelId: string | undefined,
 ): Promise<void> {
-	const nextState = upsertModelInDocument(state, draft, { replacedModelId });
-	const stored = nextState.providers[draft.providerId]!;
+	await assertProviderIsEditable(draft.providerId);
 	const newModelId = draft.modelId.trim();
+	const prepare = (latest: StateDocument) => {
+		const document = upsertModelInDocument(latest, draft, { replacedModelId });
+		return { document, changedProviderIds: [draft.providerId], removedProviderIds: [] };
+	};
 	const oldFullId = replacedModelId && replacedModelId !== newModelId
 		? getModelFullId(draft.providerId, replacedModelId)
 		: undefined;
-	if (oldFullId && replacedModelId) {
-		await persistModelRenameConfiguration(ctx, nextState, draft.providerId, replacedModelId, newModelId);
-	} else {
-		await persistManagedConfiguration(ctx, nextState);
-	}
+	const nextState = oldFullId && replacedModelId
+		? await persistModelRenameConfiguration(ctx, prepare, draft.providerId, replacedModelId, newModelId)
+		: await persistModelConfiguration(ctx, prepare, draft.providerId, newModelId);
+	const stored = nextState.providers[draft.providerId]!;
 	await reconcilePersistedProviderRuntime(pi, draft.providerId, stored, nextState);
 	const newFullId = getModelFullId(draft.providerId, newModelId);
 	await notifyModelAvailability(ctx, draft.providerId, newModelId, oldFullId);
@@ -152,13 +166,18 @@ export async function saveModelConfiguration(
 export async function saveNewProviderWithModelConfiguration(
 	pi: ExtensionAPI,
 	ctx: ExtensionCommandContext,
-	providerState: StateDocument,
+	_providerState: StateDocument,
 	providerDraft: ProviderDraft,
 	modelDraft: ModelDraft,
 ): Promise<void> {
-	const nextState = upsertModelInDocument(providerState, modelDraft);
+	await assertProviderIsEditable(providerDraft.providerId);
+	const prepare = (latest: StateDocument) => {
+		const withProvider = upsertProviderInDocument(latest, undefined, providerDraft);
+		const document = upsertModelInDocument(withProvider, modelDraft);
+		return { document, changedProviderIds: [providerDraft.providerId], removedProviderIds: [] };
+	};
+	const nextState = await persistManagedConfiguration(ctx, prepare);
 	const stored = nextState.providers[providerDraft.providerId]!;
-	await persistManagedConfiguration(ctx, nextState);
 	await reconcilePersistedProviderRuntime(pi, providerDraft.providerId, stored, nextState);
 	await notifyModelAvailability(ctx, providerDraft.providerId, modelDraft.modelId.trim(), undefined, "已创建并启用模型");
 }
@@ -167,15 +186,16 @@ export async function deleteProviderConfiguration(
 	pi: ExtensionAPI,
 	ctx: ExtensionCommandContext,
 	providerId: string,
-	provider: StoredProvider,
+	_provider: StoredProvider,
 ): Promise<void> {
-	const state = await readState();
-	const nextState = deleteProviderFromDocument(state, providerId);
-	await persistManagedConfiguration(ctx, nextState, [providerId]);
+	await assertProviderIsEditable(providerId);
+	await persistManagedConfiguration(ctx, (latest) => ({
+		document: deleteProviderFromDocument(latest, providerId),
+		changedProviderIds: [],
+		removedProviderIds: [providerId],
+	}));
 	try {
-		for (const model of provider.models) {
-			await removeModelFromNextPiStart(ctx.cwd, getModelFullId(providerId, model.id));
-		}
+		await removeProviderFromNextPiStart(ctx.cwd, providerId);
 	} catch (error) {
 		ctx.ui.notify(`接入已删除，但 enabledModels 清理失败：${formatUnknownError(error)}`, "warning");
 	}
@@ -190,14 +210,20 @@ export async function deleteModelConfiguration(
 	providerId: string,
 	modelId: string,
 ): Promise<void> {
+	await assertProviderIsEditable(providerId);
 	const fullId = getModelFullId(providerId, modelId);
-	const state = await readState();
-	const nextState = deleteModelFromDocument(state, providerId, modelId);
-	if ((nextState.providers[providerId]?.models.length ?? 0) === 0) {
-		delete nextState.providers[providerId];
-	}
+	const nextState = await persistModelDeletionConfiguration(ctx, (latest) => {
+		let document = deleteModelFromDocument(latest, providerId, modelId);
+		if ((document.providers[providerId]?.models.length ?? 0) === 0) {
+			document = deleteProviderFromDocument(document, providerId);
+		}
+		return {
+			document,
+			changedProviderIds: document.providers[providerId] ? [providerId] : [],
+			removedProviderIds: document.providers[providerId] ? [] : [providerId],
+		};
+	}, providerId, modelId);
 	const stored = nextState.providers[providerId];
-	await persistManagedConfiguration(ctx, nextState, stored ? [] : [providerId]);
 	try {
 		await removeModelFromNextPiStart(ctx.cwd, fullId);
 	} catch (error) {

@@ -7,7 +7,7 @@
 // 表单页另有 Ctrl+S 保存；列表页可注册单键快捷操作，并用 / 做轻量过滤。
 
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { Key, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { CURSOR_MARKER, Key, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
 export interface MenuRow {
 	id: string;
@@ -17,7 +17,8 @@ export interface MenuRow {
 
 export interface PersistentMenuOptions {
 	summaryLines?: readonly string[];
-	tableHeader?: string;
+	tableHeader?: string | ((width: number) => string);
+	formatRow?: (row: MenuRow, width: number) => string;
 	getDetailLines?: (selectedRow: MenuRow | undefined) => readonly string[];
 	footer?: string;
 	emptyLabel?: string;
@@ -80,6 +81,32 @@ function isSearchTextInput(data: string): boolean {
 	return data.length > 0 && !data.startsWith("\x1b") && !/[\u0000-\u001f\u007f]/.test(data);
 }
 
+function fitSearchQueryAroundCursor(query: string, cursor: number, cursorGlyph: string, maxWidth: number): string {
+	if (maxWidth <= 0) return "";
+	const characters = Array.from(query);
+	const cursorWidth = visibleWidth(cursorGlyph);
+	const textBudget = Math.max(0, maxWidth - cursorWidth);
+	let beforeCursor = "";
+	let beforeWidth = 0;
+	for (let index = Math.min(cursor, characters.length) - 1; index >= 0; index -= 1) {
+		const character = characters[index]!;
+		const characterWidth = visibleWidth(character);
+		if (beforeWidth + characterWidth > textBudget) break;
+		beforeCursor = character + beforeCursor;
+		beforeWidth += characterWidth;
+	}
+	let afterCursor = "";
+	let afterWidth = 0;
+	for (let index = Math.min(cursor, characters.length); index < characters.length; index += 1) {
+		const character = characters[index]!;
+		const characterWidth = visibleWidth(character);
+		if (beforeWidth + afterWidth + characterWidth > textBudget) break;
+		afterCursor += character;
+		afterWidth += characterWidth;
+	}
+	return `${beforeCursor}${cursorGlyph}${afterCursor}`;
+}
+
 function createPersistentMenu<TAction extends MenuAction | FormMenuAction | ShortcutMenuAction>(
 	ctx: ExtensionCommandContext,
 	title: string,
@@ -97,6 +124,8 @@ function createPersistentMenu<TAction extends MenuAction | FormMenuAction | Shor
 		let selectedIndex = clampIndex(cursor.index, rows.length);
 		let searchActive = false;
 		let searchQuery = "";
+		let searchCursor = 0;
+		let focused = false;
 		const visibleRows = options.visibleRows ?? 18;
 		const searchable = options.searchable ?? false;
 
@@ -104,7 +133,7 @@ function createPersistentMenu<TAction extends MenuAction | FormMenuAction | Shor
 
 		const syncCursor = (activeRows: MenuRow[]): void => {
 			const row = activeRows[selectedIndex];
-			cursor.index = row ? rows.indexOf(row) : rows.length;
+			if (row) cursor.index = rows.indexOf(row);
 		};
 
 		const requestRender = (): void => {
@@ -118,9 +147,20 @@ function createPersistentMenu<TAction extends MenuAction | FormMenuAction | Shor
 			if (!searchable || (!searchActive && !searchQuery)) return false;
 			searchActive = false;
 			searchQuery = "";
+			searchCursor = 0;
 			selectedIndex = clampIndex(cursor.index, rows.length);
 			requestRender();
 			return true;
+		};
+
+		const replaceSearchQuery = (nextQuery: string, nextCursor: number): void => {
+			const selectedRow = getActiveRows()[selectedIndex];
+			searchQuery = nextQuery;
+			searchCursor = clampIndex(nextCursor, Array.from(searchQuery).length + 1);
+			const nextRows = getActiveRows();
+			const retainedIndex = selectedRow ? nextRows.indexOf(selectedRow) : -1;
+			selectedIndex = retainedIndex >= 0 ? retainedIndex : 0;
+			requestRender();
 		};
 
 		const pickSelected = (): void => {
@@ -137,6 +177,12 @@ function createPersistentMenu<TAction extends MenuAction | FormMenuAction | Shor
 		};
 
 		return {
+			get focused(): boolean {
+				return focused;
+			},
+			set focused(value: boolean) {
+				focused = value;
+			},
 			invalidate(): void {},
 			handleInput(data: string): void {
 				if (createSaveAction && matchesKey(data, Key.ctrl("s"))) {
@@ -164,11 +210,39 @@ function createPersistentMenu<TAction extends MenuAction | FormMenuAction | Shor
 					return;
 				}
 
-				// 搜索激活后，可打印字符必须进入查询，不能触发同名的菜单快捷键。
 				if (searchable && searchActive) {
+					const queryCharacters = Array.from(searchQuery);
 					if (matchesKey(data, Key.backspace)) {
-						searchQuery = searchQuery.slice(0, -1);
-						selectedIndex = 0;
+						if (searchCursor > 0) {
+							queryCharacters.splice(searchCursor - 1, 1);
+							replaceSearchQuery(queryCharacters.join(""), searchCursor - 1);
+						}
+						return;
+					}
+					if (matchesKey(data, Key.delete)) {
+						if (searchCursor < queryCharacters.length) {
+							queryCharacters.splice(searchCursor, 1);
+							replaceSearchQuery(queryCharacters.join(""), searchCursor);
+						}
+						return;
+					}
+					if (matchesKey(data, Key.left)) {
+						searchCursor = Math.max(0, searchCursor - 1);
+						requestRender();
+						return;
+					}
+					if (matchesKey(data, Key.right)) {
+						searchCursor = Math.min(queryCharacters.length, searchCursor + 1);
+						requestRender();
+						return;
+					}
+					if (matchesKey(data, Key.home)) {
+						searchCursor = 0;
+						requestRender();
+						return;
+					}
+					if (matchesKey(data, Key.end)) {
+						searchCursor = queryCharacters.length;
 						requestRender();
 						return;
 					}
@@ -177,9 +251,8 @@ function createPersistentMenu<TAction extends MenuAction | FormMenuAction | Shor
 						return;
 					}
 					if (isSearchTextInput(data)) {
-						searchQuery += data;
-						selectedIndex = 0;
-						requestRender();
+						queryCharacters.splice(searchCursor, 0, ...Array.from(data));
+						replaceSearchQuery(queryCharacters.join(""), searchCursor + Array.from(data).length);
 						return;
 					}
 				}
@@ -192,6 +265,7 @@ function createPersistentMenu<TAction extends MenuAction | FormMenuAction | Shor
 				}
 				if (searchable && data === "/") {
 					searchActive = true;
+					searchCursor = Array.from(searchQuery).length;
 					requestRender();
 					return;
 				}
@@ -252,13 +326,20 @@ function createPersistentMenu<TAction extends MenuAction | FormMenuAction | Shor
 					lines.push(truncateToWidth(theme.fg("dim", line), width));
 				}
 				if (searchable && searchActive) {
-					lines.push(truncateToWidth(theme.fg("accent", `搜索：${searchQuery || "<输入关键词>"}`), width));
+					const cursorGlyph = focused ? `${CURSOR_MARKER}${theme.fg("accent", "▌")}` : "";
+					const searchPrefix = theme.fg("accent", "搜索：");
+					const queryWidth = Math.max(0, width - visibleWidth(searchPrefix));
+					const queryDisplay = searchQuery
+						? fitSearchQueryAroundCursor(searchQuery, searchCursor, cursorGlyph, queryWidth)
+						: `${cursorGlyph}${theme.fg("dim", "<输入关键词>")}`;
+					lines.push(truncateToWidth(`${searchPrefix}${queryDisplay}`, width, ""));
 				}
 				lines.push("");
 
-				if (options.tableHeader) {
-					lines.push(truncateToWidth(theme.fg("dim", options.tableHeader), width));
-				}
+				const tableHeader = typeof options.tableHeader === "function"
+					? options.tableHeader(width)
+					: options.tableHeader;
+				if (tableHeader) lines.push(truncateToWidth(theme.fg("dim", tableHeader), width));
 
 				if (shownRows.length === 0) {
 					const emptyLabel = searchQuery ? `无匹配项：${searchQuery}` : options.emptyLabel ?? "暂无条目";
@@ -269,7 +350,8 @@ function createPersistentMenu<TAction extends MenuAction | FormMenuAction | Shor
 						const row = shownRows[i]!;
 						const selected = absoluteIndex === selectedIndex;
 						const prefix = selected ? "❯ " : "  ";
-						const line = `${prefix}${row.label}`;
+						const rowLabel = options.formatRow?.(row, Math.max(0, width - visibleWidth(prefix))) ?? row.label;
+						const line = `${prefix}${rowLabel}`;
 						lines.push(truncateToWidth(selected ? theme.fg("accent", line) : line, width));
 						for (const description of getDescriptionLines(row)) {
 							lines.push(truncateToWidth(theme.fg("dim", `    ${description}`), width));

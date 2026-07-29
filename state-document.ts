@@ -17,11 +17,11 @@ import {
 } from "./config-value-reference.ts";
 import { findPresetForApi } from "./presets/providers.ts";
 import { normalizeThinkingLevelMap } from "./presets/thinking.ts";
+import { isSensitiveHeaderName } from "./sensitive-redaction.ts";
 import type {
 	ApiKind,
 	CompatSettings,
 	ModelDraft,
-	ModelInputKind,
 	ProviderDraft,
 	RequestHeaderProfileDraft,
 	StateDocument,
@@ -37,9 +37,8 @@ const API_KINDS: ApiKind[] = ["openai-completions", "openai-responses", "anthrop
 const ID_PATTERN = /^[A-Za-z0-9._-]+$/;
 const MAX_PROVIDER_ID_LENGTH = 48;
 const RESERVED_REQUEST_HEADER_PROFILE_IDS = new Set(["claude-code", "codex-cli", "claude-code-live", "codex-cli-live"]);
-const SENSITIVE_REQUEST_HEADER_NAMES = new Set(["authorization", "api-key", "x-api-key", "cookie", "set-cookie", "proxy-authorization"]);
 
-export function isApiKind(value: unknown): value is ApiKind {
+function isApiKind(value: unknown): value is ApiKind {
 	return typeof value === "string" && API_KINDS.includes(value as ApiKind);
 }
 
@@ -51,9 +50,6 @@ export function getProviderDisplayName(providerId: string, provider: StoredProvi
 	return trimOrFallback(provider.name, providerId.replace(/^custom-/, ""));
 }
 
-export function formatInputKinds(inputKinds: ModelInputKind[]): string {
-	return inputKinds.includes("image") ? "text,image" : "text";
-}
 
 export function getApiKeyEnvVarName(apiKey: string): string | undefined {
 	return getSingleConfigValueEnvVarName(apiKey);
@@ -109,7 +105,7 @@ export function createProviderDraftFromStored(providerId: string, stored: Stored
 	};
 }
 
-export function createModelDraftFromProvider(providerDraft: ProviderDraft): ModelDraft {
+function createModelDraftFromProvider(providerDraft: ProviderDraft): ModelDraft {
 	const preset = findPresetForApi(providerDraft.api);
 	return {
 		providerId: providerDraft.providerId,
@@ -321,7 +317,7 @@ function keepModelFieldsSupportedByApi(model: StoredModel, providerApi: ApiKind,
 	return next;
 }
 
-export function buildProviderFromDraft(
+function buildProviderFromDraft(
 	current: StoredProvider | undefined,
 	draft: ProviderDraft,
 ): StoredProvider {
@@ -331,6 +327,7 @@ export function buildProviderFromDraft(
 		name: trimOrFallback(draft.providerName, draft.providerId.trim()),
 		api: draft.api,
 		baseUrl: draft.baseUrl.trim(),
+		managed: true,
 		authHeader: draft.authHeader,
 		clientHeaderProfile: draft.clientHeaderProfile,
 		models: (current?.models ?? []).map((model) => keepModelFieldsSupportedByApi(model, draft.api, apiChanged)),
@@ -365,7 +362,7 @@ export function buildModelFromDraft(
 	const reasoning = draft.reasoningMode === "enabled";
 	const compat: CompatSettings = cloneJson(existing?.compat) ?? {};
 	const effectiveApi = isApiKind(existing?.api) ? existing.api : draft.api;
-	const storedThinkingLevelMap = existing?.id === modelId ? cloneJson(existing.thinkingLevelMap) : undefined;
+	const storedThinkingLevelMap = cloneJson(existing?.thinkingLevelMap);
 	const thinkingLevelMap = normalizeThinkingLevelMap(effectiveApi, reasoning, storedThinkingLevelMap);
 
 	const next: StoredModel = {
@@ -430,10 +427,6 @@ export function createRequestHeaderProfileDraftFromStored(
 	};
 }
 
-export function formatRequestHeaderProfileRow(profileId: string, profile: StoredRequestHeaderProfile): string {
-	const name = profile.name === profileId ? profileId : `${profile.name} (${profileId})`;
-	return `${name} · ${Object.keys(profile.headers).length}项`;
-}
 
 export function countModelsUsingRequestHeaderProfile(document: StateDocument, profileId: string): number {
 	let count = 0;
@@ -460,7 +453,7 @@ export function validateRequestHeaderProfileDraft(
 	}
 	if (!draft.profileName.trim()) errors.push("请求头名称不能为空");
 	if (!hasStringRecordEntries(draft.headers)) errors.push("请求头至少需要 1 项");
-	const sensitiveHeaders = Object.keys(draft.headers).filter((name) => SENSITIVE_REQUEST_HEADER_NAMES.has(name.toLowerCase()));
+	const sensitiveHeaders = Object.keys(draft.headers).filter(isSensitiveHeaderName);
 	if (sensitiveHeaders.length > 0) {
 		errors.push(`请求头包含会明文落盘的敏感字段：${sensitiveHeaders.join("、")}（请改用 provider API key / 环境变量 / !command）`);
 	}
@@ -477,6 +470,7 @@ export function upsertRequestHeaderProfileInDocument(
 	if (oldProfileId && oldProfileId !== profileId) {
 		delete next.requestHeaderProfiles[oldProfileId];
 		for (const provider of Object.values(next.providers)) {
+			if (!provider.managed) continue;
 			if (provider.requestHeaderProfileId === oldProfileId) provider.requestHeaderProfileId = profileId;
 			for (const model of provider.models ?? []) {
 				if (model.requestHeaderProfileId === oldProfileId) model.requestHeaderProfileId = profileId;
@@ -494,6 +488,7 @@ export function deleteRequestHeaderProfileFromDocument(document: StateDocument, 
 	const next: StateDocument = cloneJson(document);
 	delete next.requestHeaderProfiles[profileId];
 	for (const provider of Object.values(next.providers)) {
+		if (!provider.managed) continue;
 		if (provider.requestHeaderProfileId === profileId) {
 			provider.clientHeaderProfile = "recommended";
 			delete provider.requestHeaderProfileId;
@@ -526,8 +521,12 @@ export function upsertProviderInDocument(
 	const nextProvider = buildProviderFromDraft(sourceProvider, draft);
 	if (oldProviderId && oldProviderId !== draft.providerId) {
 		delete next.providers[oldProviderId];
+		next.managedProviderIds = next.managedProviderIds.filter((providerId) => providerId !== oldProviderId);
 	}
 	next.providers[draft.providerId] = nextProvider;
+	if (nextProvider.managed && !next.managedProviderIds.includes(draft.providerId)) {
+		next.managedProviderIds.push(draft.providerId);
+	}
 	return next;
 }
 
@@ -565,5 +564,6 @@ export function deleteProviderFromDocument(
 ): StateDocument {
 	const next: StateDocument = cloneJson(document);
 	delete next.providers[providerId];
+	next.managedProviderIds = next.managedProviderIds.filter((id) => id !== providerId);
 	return next;
 }

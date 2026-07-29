@@ -8,6 +8,9 @@ bootstrap-meta.json
 # Private request-capture tooling is intentionally not published
 request-capture-service/
 
+# Local development plans (not published to GitHub or npm)
+/docs/OPTIMIZATION-PLAN.md
+
 # Generated artifacts
 *.bak
 *.bak.*

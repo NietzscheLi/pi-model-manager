@@ -6,8 +6,8 @@
 //   - 提供"从上游拉取模型 ID 列表"入口（OpenAI/Anthropic/Google）
 //   - 支持视觉用开关式 select，保存时仍映射为 text / text,image
 
-import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import type { AnthropicThinkingProtocol, BuiltInClientHeaderProfileId, ModelDraft, ReasoningMode, StoredClientHeaderCapture, StoredRequestHeaderProfile } from "../types.ts";
+import { BorderedLoader, type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { AnthropicThinkingProtocol, BuiltInClientHeaderProfileId, ModelDraft, ModelListFetchOutcome, ReasoningMode, StoredClientHeaderCapture, StoredRequestHeaderProfile } from "../types.ts";
 import { fetchModelIds } from "./model-list-fetch.ts";
 import { pickModelIdFromList } from "./model-picker.ts";
 import { showPersistentFormMenu, showPersistentMenu, padLabel, type HorizontalDirection, type MenuCursor } from "./persistent-menu.ts";
@@ -127,8 +127,7 @@ async function pickModelFromUpstream(
 	requestHeaderProfiles: Record<string, StoredRequestHeaderProfile>,
 	clientHeaderCaptures: Partial<Record<BuiltInClientHeaderProfileId, StoredClientHeaderCapture>>,
 ): Promise<void> {
-	ctx.ui.notify("正在拉取模型列表（10 秒超时）…", "info");
-	const outcome = await fetchModelIds({
+	const params = {
 		providerId: draft.providerId,
 		api: draft.api,
 		baseUrl: draft.baseUrl,
@@ -139,7 +138,22 @@ async function pickModelFromUpstream(
 		httpProxyEnabled: draft.httpProxyEnabled,
 		httpProxyUrl: draft.httpProxyUrl,
 		clientHeaderCaptures,
+	};
+	const outcome = await ctx.ui.custom<ModelListFetchOutcome>((tui, theme, _keybindings, done) => {
+		const loader = new BorderedLoader(tui, theme, "正在拉取模型列表，总计最多 10 秒…", { cancellable: true });
+		let settled = false;
+		const finish = (result: ModelListFetchOutcome) => {
+			if (settled) return;
+			settled = true;
+			done(result);
+		};
+		loader.onAbort = () => finish({ status: "cancelled" });
+		fetchModelIds(params, loader.signal)
+			.then(finish)
+			.catch((error) => finish({ status: "failed", message: error instanceof Error ? error.message : String(error) }));
+		return loader;
 	});
+	if (outcome.status === "cancelled") return;
 	if (outcome.status === "failed") {
 		ctx.ui.notify(`拉取失败：${outcome.message}`, "warning");
 		const fallback = await ctx.ui.input(`手动输入模型 ID（当前：${draft.modelId || "<空>"}）`, draft.modelId);

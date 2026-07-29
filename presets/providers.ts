@@ -1,6 +1,6 @@
 // 4 种 API 协议的默认预设。新建接入/模型时用，便于一键填好常用字段。
 
-import type { ApiKind, ModelInputKind } from "../types.ts";
+import type { ApiKind, ModelInputKind, ProviderDraft } from "../types.ts";
 
 export interface ProviderPreset {
 	api: ApiKind;
@@ -16,7 +16,7 @@ export interface ProviderPreset {
 	defaultReasoning: boolean;
 }
 
-export const PROVIDER_PRESETS: ProviderPreset[] = [
+const PROVIDER_PRESETS: ProviderPreset[] = [
 	{
 		api: "openai-responses",
 		label: "OpenAI Responses — 标准 instructions / input",
@@ -75,6 +75,29 @@ export function findPresetForApi(api: ApiKind | undefined): ProviderPreset {
 	return PROVIDER_PRESETS.find((preset) => preset.api === api) ?? PROVIDER_PRESETS[0]!;
 }
 
-export function getProtocolDisplayName(api: ApiKind): string {
-	return findPresetForApi(api).shortLabel;
+function normalizePresetUrl(value: string): string | undefined {
+	try {
+		const url = new URL(value.trim());
+		url.pathname = url.pathname.replace(/\/+$/, "") || "/";
+		return url.toString();
+	} catch {
+		return undefined;
+	}
+}
+
+function stillUsesPresetUrl(value: string, presetUrl: string): boolean {
+	const normalizedValue = normalizePresetUrl(value);
+	const normalizedPreset = normalizePresetUrl(presetUrl);
+	return normalizedValue !== undefined && normalizedValue === normalizedPreset;
+}
+
+export function switchProviderDraftApiPreset(draft: ProviderDraft, nextApi: ApiKind): void {
+	if (draft.api === nextApi) return;
+	const previousPreset = findPresetForApi(draft.api);
+	const nextPreset = findPresetForApi(nextApi);
+	const replaceBaseUrl = stillUsesPresetUrl(draft.baseUrl, previousPreset.baseUrl);
+	const replaceApiKey = draft.apiKey === previousPreset.apiKey;
+	draft.api = nextApi;
+	if (replaceBaseUrl) draft.baseUrl = nextPreset.baseUrl;
+	if (replaceApiKey) draft.apiKey = nextPreset.apiKey;
 }

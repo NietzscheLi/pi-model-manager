@@ -4,11 +4,11 @@ English · [简体中文](./README.md)
 
 [![Pi](https://img.shields.io/badge/Pi-%3E%3D0.82.0-6f42c1)](https://github.com/earendil-works/pi)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-0.1.0-2f81f7.svg)](https://www.npmjs.com/package/pi-model-manager)
+[![Version](https://img.shields.io/badge/version-0.2.0-2f81f7.svg)](https://github.com/Qihuanxishini/pi-model-manager)
 
 A TUI model and provider manager for [Pi](https://github.com/earendil-works/pi). It keeps Pi's native `models.json` as the single source of truth for model configuration while adding provider/model editing, client-header identities, proxy routing, and protocol compatibility controls.
 
-> The current stable version is `0.1.0` and requires Pi `>=0.82.0`.
+> The current stable version is `0.2.0` and requires Pi `>=0.82.0`.
 
 ## Interface preview
 
@@ -45,7 +45,7 @@ A TUI model and provider manager for [Pi](https://github.com/earendil-works/pi).
 - Route each provider directly or through its own HTTP(S) proxy.
 - Use recommended, disabled, Claude Code, Codex, or custom client-header profiles.
 - Reference API keys as literals, `$ENV_VAR` / `${ENV_VAR}`, or Pi `!command` values.
-- Persist configuration atomically and re-register managed providers after saving.
+- Persist configuration with a cross-process lock and recoverable two-file transactions, then re-register managed providers after saving.
 
 ## Installation
 
@@ -92,6 +92,7 @@ pi install npm:pi-model-manager
    | `n` | Create a provider and its first model |
    | `d` | Delete the selected provider |
    | `h` | Manage reusable header profiles |
+   | `/` | Search the current list |
    | `Esc` | Go back or exit |
 
 4. In an editor, use the arrow keys to select a field and press `Enter` to edit it. Toggle supported fields with `←` / `→`, then press `Ctrl+S` to save.
@@ -108,7 +109,7 @@ Each provider can define:
 - Provider-specific HTTP(S) proxy
 - One or more models
 
-When adding a model, the extension attempts to fetch the upstream model list with a 10-second timeout. You can still enter a model ID manually if discovery fails.
+When adding a model, the extension attempts to fetch the upstream model list. The complete discovery flow, including authentication fallbacks, shares one 10-second limit and can be cancelled with `Esc`. You can still enter a model ID manually after failure or cancellation.
 
 Model capabilities include:
 
@@ -145,7 +146,9 @@ Custom profiles reject authentication-related sensitive headers. Put authenticat
 | `~/.pi/agent/models.json` | Native Pi provider and model definitions; the single source of truth for model configuration |
 | `~/.pi/agent/extensions/pi-model-manager/state.json` | Extension metadata such as header choices, custom profiles, proxy switches, and Fast mode |
 
-The extension preserves native `models.json` fields that are outside the TUI's editing scope whenever possible. Avoid modifying the same configuration file from multiple processes at once.
+The extension generates client headers, proxy routes, and dynamic registrations only for explicitly managed providers. Ownership requires both a managed ID in `state.json` and a `piModelManager.managed` marker on the Provider node in `models.json`; this prevents a deleted Provider ID from silently taking ownership of an unrelated native Provider that later reuses the same ID. Native providers without this ownership evidence remain unmanaged: saving unrelated settings does not rewrite their existing headers or unknown native fields. Built-in Pi providers cannot be edited or deleted through this extension.
+
+Plugin configuration writes are serialized with a cross-process lock, and `enabledModels` also honors Pi's `proper-lockfile` lock. An intent journal makes the `models.json` / `state.json` pair recoverable after interruption, and readers reject an in-progress half-written pair. External editors do not honor these locks, so content hashes are still checked before saving; an external change cancels the save instead of being overwritten.
 
 ## Secrets and security
 
@@ -203,4 +206,4 @@ Thanks to the [LINUX DO](https://linux.do/) community for discussion, sharing, a
 
 ## License
 
-Official releases from `v0.1.0` onward are licensed under the [GNU Affero General Public License v3.0 only](./LICENSE). Modified distributions must provide the corresponding source, remain under AGPL-3.0, and identify their changes; they must not represent themselves as official releases. See [NOTICE](./NOTICE).
+This project is licensed under the [GNU Affero General Public License v3.0 only](./LICENSE). Modified distributions must provide the corresponding source, remain under AGPL-3.0, and identify their changes; they must not represent themselves as official releases. See [NOTICE](./NOTICE).

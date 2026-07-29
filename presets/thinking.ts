@@ -1,6 +1,6 @@
 // thinkingLevelMap 的协议默认值与持久化归一化。
 
-import type { ApiKind, CompatSettings, ThinkingLevelMap } from "../types.ts";
+import type { ApiKind, ThinkingLevelMap } from "../types.ts";
 
 const EXTENDED_THINKING_LEVEL_MAP: ThinkingLevelMap = {
 	xhigh: "xhigh",
@@ -35,14 +35,14 @@ function isLegacyShiftedMaxLadder(map: ThinkingLevelMap): boolean {
 		&& map.max === undefined;
 }
 
-export function buildThinkingLevelMap(api: ApiKind, reasoning: boolean): ThinkingLevelMap | undefined {
+function buildThinkingLevelMap(api: ApiKind, reasoning: boolean): ThinkingLevelMap | undefined {
 	if (!reasoning) return undefined;
 	if (api === "google-generative-ai") return { ...GOOGLE_GENERATIVE_AI_THINKING_LEVEL_MAP };
 	if (api === "openai-completions" || api === "openai-responses") return { ...OPENAI_THINKING_LEVEL_MAP };
 	return { ...EXTENDED_THINKING_LEVEL_MAP };
 }
 
-export function applyProtocolThinkingLevelLimits(
+function applyProtocolThinkingLevelLimits(
 	api: ApiKind,
 	thinkingLevelMap: ThinkingLevelMap | undefined,
 ): ThinkingLevelMap | undefined {
@@ -50,10 +50,10 @@ export function applyProtocolThinkingLevelLimits(
 		return { ...(thinkingLevelMap ?? {}), ...GOOGLE_GENERATIVE_AI_THINKING_LEVEL_MAP };
 	}
 	if (!thinkingLevelMap) return undefined;
-	return { ...thinkingLevelMap, ...EXTENDED_THINKING_LEVEL_MAP };
+	return { ...EXTENDED_THINKING_LEVEL_MAP, ...thinkingLevelMap };
 }
 
-export function mergeThinkingLevelMap(
+function mergeThinkingLevelMap(
 	defaultMap: ThinkingLevelMap | undefined,
 	storedMap: ThinkingLevelMap | undefined,
 ): ThinkingLevelMap | undefined {
@@ -70,12 +70,4 @@ export function normalizeThinkingLevelMap(
 	const defaultMap = buildThinkingLevelMap(api, true);
 	if (storedMap && isLegacyShiftedMaxLadder(storedMap)) return defaultMap;
 	return applyProtocolThinkingLevelLimits(api, mergeThinkingLevelMap(defaultMap, storedMap));
-}
-
-export function mergeCompatSettings(
-	providerCompat: CompatSettings | undefined,
-	modelCompat: CompatSettings | undefined,
-): CompatSettings | undefined {
-	if (providerCompat && modelCompat) return { ...providerCompat, ...modelCompat };
-	return modelCompat ?? providerCompat;
 }

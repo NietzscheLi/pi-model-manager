@@ -5,7 +5,8 @@
 
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { hasStringRecordEntries } from "../common.ts";
-import { findPresetForApi } from "../presets/providers.ts";
+import { switchProviderDraftApiPreset } from "../presets/providers.ts";
+import { redactUrlForDisplay } from "../sensitive-redaction.ts";
 import { DEFAULT_PROVIDER_HTTP_PROXY_URL } from "../types.ts";
 import { showPersistentFormMenu, padLabel, type HorizontalDirection, type MenuCursor } from "./persistent-menu.ts";
 import {
@@ -39,7 +40,7 @@ function buildRows(
 		{ id: "providerName", label: "名称", value: draft.providerName || "<空>" },
 		{ id: "baseUrl", label: "Base URL", value: draft.baseUrl },
 		{ id: "httpProxyEnabled", label: "本机代理", value: draft.httpProxyEnabled ? "开启" : "关闭" },
-		{ id: "httpProxyUrl", label: "代理地址", value: draft.httpProxyEnabled ? (draft.httpProxyUrl || DEFAULT_PROVIDER_HTTP_PROXY_URL) : "关闭时不使用" },
+		{ id: "httpProxyUrl", label: "代理地址", value: draft.httpProxyEnabled ? redactUrlForDisplay(draft.httpProxyUrl || DEFAULT_PROVIDER_HTTP_PROXY_URL) : "关闭时不使用" },
 		{ id: "apiKey", label: "API key", value: maskSecret(draft.apiKey) },
 		{ id: "authHeader", label: "认证头", value: draft.authHeader ? "Bearer" : "默认" },
 		{ id: "clientHeaderProfile", label: "请求头", value: profileDisplay },
@@ -113,11 +114,7 @@ async function editField(
 ): Promise<void> {
 	if (fieldId === "api") {
 		const choice = await selectChoice(ctx, "选择 API 协议", API_CHOICES, draft.api);
-		if (choice) {
-			draft.api = choice.id;
-			const preset = findPresetForApi(draft.api);
-			if (!draft.baseUrl.trim()) draft.baseUrl = preset.baseUrl;
-		}
+		if (choice) switchProviderDraftApiPreset(draft, choice.id);
 		return;
 	}
 	if (fieldId === "authHeader") {
@@ -135,7 +132,7 @@ async function editField(
 	if (fieldId === "httpProxyEnabled") {
 		const choice = await ctx.ui.select("本机代理（仅当前接入点）", [
 			"关闭 — 请求直连上游",
-			`开启 — 通过 ${draft.httpProxyUrl || DEFAULT_PROVIDER_HTTP_PROXY_URL}`,
+			`开启 — 通过 ${redactUrlForDisplay(draft.httpProxyUrl || DEFAULT_PROVIDER_HTTP_PROXY_URL)}`,
 		]);
 		if (!choice) return;
 		draft.httpProxyEnabled = choice.startsWith("开启");
@@ -155,6 +152,12 @@ async function editField(
 		if (value !== undefined) draft.providerName = value.trim();
 		return;
 	}
+	if (fieldId === "httpProxyUrl") {
+		const currentLabel = redactUrlForDisplay(draft.httpProxyUrl || DEFAULT_PROVIDER_HTTP_PROXY_URL);
+		const value = await ctx.ui.input(`代理地址（http/https；当前：${currentLabel}，留空保持原值）`, "");
+		if (value?.trim()) draft.httpProxyUrl = value.trim();
+		return;
+	}
 	if (fieldId === "apiKey") {
 		const currentLabel = draft.apiKey ? maskSecret(draft.apiKey) : "<空>";
 		const value = await ctx.ui.input(`API key（可选；明文 / $ENV_VAR / !command；当前：${currentLabel}，留空清除）`, "");
@@ -164,8 +167,6 @@ async function editField(
 	}
 	const prompt = ({
 		baseUrl: "Base URL（http/https）",
-		httpProxyUrl: "代理地址（http://host:port 或 https://host:port）",
-		apiKey: "API key（可选；明文 / $ENV_VAR / !command）",
 	} as Record<string, string>)[fieldId];
 	const current = (draft as any)[fieldId] as string;
 	const value = await ctx.ui.input(`${prompt ?? fieldId}（当前：${current || "<空>"}，留空保持原值）`, current);

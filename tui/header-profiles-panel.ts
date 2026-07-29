@@ -16,6 +16,7 @@ import {
 import { readState } from "../state-store.ts";
 import type { RequestHeaderProfileDraft, StoredClientHeaderCapture, StoredRequestHeaderProfile } from "../types.ts";
 import { padLabel, showPersistentFormMenu, showPersistentShortcutMenu, type MenuCursor } from "./persistent-menu.ts";
+import { fitColumn } from "./ui-helpers.ts";
 
 interface ProfileRow {
 	profileId: string;
@@ -69,8 +70,55 @@ function formatCaptureLine(label: string, capture: StoredClientHeaderCapture | u
 	return `  ${padLabel(label, 12)} 已抓包 ${formatCapturedAt(capture.capturedAt)} · ${Object.keys(capture.headers).length} headers`;
 }
 
-function formatProfileRow(profileId: string, profile: StoredRequestHeaderProfile, usedCount: number): string {
-	return `${padLabel(profileId, 22)} ${padLabel(`${Object.keys(profile.headers).length} headers`, 12)} ${padLabel(`${usedCount} models`, 10)} ${profile.name}`.trimEnd();
+interface ProfileTableCells {
+	profileId: string;
+	headers: string;
+	used: string;
+	name: string;
+}
+
+function formatProfileTableRow(cells: ProfileTableCells, availableWidth: number): string {
+	if (availableWidth >= 64) {
+		return [
+			fitColumn(cells.profileId, 22),
+			fitColumn(cells.headers, 12),
+			fitColumn(cells.used, 10),
+			fitColumn(cells.name, Math.max(10, availableWidth - 47)),
+		].join(" ");
+	}
+	if (availableWidth >= 46) {
+		return [fitColumn(cells.profileId, 22), fitColumn(cells.headers, 12), fitColumn(cells.used, 10)].join(" ");
+	}
+	if (availableWidth >= 33) {
+		return [fitColumn(cells.profileId, 20), fitColumn(cells.headers, 12)].join(" ");
+	}
+	return [
+		fitColumn(cells.profileId, Math.max(8, availableWidth - 11)),
+		fitColumn(cells.headers, 10),
+	].join(" ");
+}
+
+function formatProfileRow(
+	profileId: string,
+	profile: StoredRequestHeaderProfile,
+	usedCount: number,
+	availableWidth = 78,
+): string {
+	return formatProfileTableRow({
+		profileId,
+		headers: `${Object.keys(profile.headers).length} headers`,
+		used: `${usedCount} models`,
+		name: profile.name,
+	}, availableWidth);
+}
+
+function formatProfileTableHeader(menuWidth: number): string {
+	return `  ${formatProfileTableRow({
+		profileId: "自定义 ID",
+		headers: "Headers",
+		used: "Used",
+		name: "名称",
+	}, Math.max(0, menuWidth - 2))}`;
 }
 
 function formatProfileDetailLines(profileId: string, profile: StoredRequestHeaderProfile, usedCount: number): string[] {
@@ -273,7 +321,14 @@ export async function runHeaderProfilesPanel(pi: ExtensionAPI, ctx: ExtensionCom
 					formatCaptureLine("Codex", state.clientHeaderCaptures["codex-cli"]),
 					`Custom profiles: ${rows.length}`,
 				],
-				tableHeader: `${padLabel("自定义 ID", 22)} ${padLabel("Headers", 12)} ${padLabel("Used", 10)} 名称`,
+				tableHeader: formatProfileTableHeader,
+				formatRow: (menuRow, width) => {
+					const row = rows[Number.parseInt(menuRow.id, 10)];
+					const profile = row ? state.requestHeaderProfiles[row.profileId] : undefined;
+					return row && profile
+						? formatProfileRow(row.profileId, profile, countModelsUsingRequestHeaderProfile(state, row.profileId), width)
+						: menuRow.label;
+				},
 				getDetailLines: (selectedRow) => {
 					const row = rows[Number.parseInt(selectedRow?.id ?? "", 10)];
 					const profile = row ? state.requestHeaderProfiles[row.profileId] : undefined;
