@@ -13,6 +13,7 @@
 // 调用方负责先同步 registry/runtime，避免救援阶段再次触发全目录刷新。
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { t } from "./i18n.ts";
 
 interface AffectedRef {
 	providerId: string;
@@ -45,7 +46,7 @@ export async function withModelRescue(
 		if (replacement && ctx.modelRegistry.hasConfiguredAuth(replacement)) {
 			if (await pi.setModel(replacement)) {
 				ctx.ui.notify(
-					`${options.reason}，已切换到 ${options.preferred.providerId}/${options.preferred.modelId}`,
+					t("{reason}，已切换到 {fullId}", { reason: options.reason, fullId: `${options.preferred.providerId}/${options.preferred.modelId}` }),
 					"info",
 				);
 				return;
@@ -56,14 +57,14 @@ export async function withModelRescue(
 	const fallback = ctx.modelRegistry.getAvailable()[0];
 	if (fallback && await pi.setModel(fallback)) {
 		ctx.ui.notify(
-			`${options.reason}，已自动切换到 ${fallback.provider}/${fallback.id}`,
+			t("{reason}，已自动切换到 {fullId}", { reason: options.reason, fullId: `${fallback.provider}/${fallback.id}` }),
 			"info",
 		);
 		return;
 	}
 
 	ctx.ui.notify(
-		`${options.reason}，但当前没有其它可用模型。请使用 /model-manager 添加模型或 /login 配置认证。`,
+		t("{reason}，但当前没有其它可用模型。请使用 /model-manager 添加模型或 /login 配置认证。", { reason: options.reason }),
 		"warning",
 	);
 }

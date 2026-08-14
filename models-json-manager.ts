@@ -9,6 +9,7 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { join } from "node:path";
 import { cloneJson, isObjectRecord, stripJsonNoise } from "./common.ts";
 import { readStableTextFileSnapshot, type FileSignature } from "./file-snapshot.ts";
+import { t } from "./i18n.ts";
 import type { TokenCost } from "./types.ts";
 
 export const MODELS_JSON_PATH = join(getAgentDir(), "models.json");
@@ -96,7 +97,7 @@ function createEmpty(): ModelsJsonDocument {
 
 function parseModelsJson(source: string): ModelsJsonDocument {
 	const parsed = JSON.parse(stripJsonNoise(source));
-	if (!isObjectRecord(parsed)) throw new Error("models.json 根节点必须是对象");
+	if (!isObjectRecord(parsed)) throw new Error(t("models.json 根节点必须是对象"));
 	const providers = isObjectRecord(parsed.providers) ? parsed.providers : {};
 	return { ...parsed, providers: providers as Record<string, ModelsJsonProviderEntry> };
 }
@@ -141,8 +142,8 @@ export function renameProviderInDoc(
 	const next = cloneJson(doc);
 	if (oldProviderId === newProviderId) return next;
 	const source = next.providers[oldProviderId];
-	if (!source) throw new Error(`models.json 中不存在待重命名接入：${oldProviderId}`);
-	if (next.providers[newProviderId]) throw new Error(`models.json 中已存在接入：${newProviderId}`);
+	if (!source) throw new Error(t("models.json 中不存在待重命名接入：{providerId}", { providerId: oldProviderId }));
+	if (next.providers[newProviderId]) throw new Error(t("models.json 中已存在接入：{providerId}", { providerId: newProviderId }));
 	next.providers[newProviderId] = source;
 	delete next.providers[oldProviderId];
 	return next;
@@ -156,7 +157,7 @@ export function setModelInDoc(
 ): ModelsJsonDocument {
 	const next = cloneJson(doc);
 	const provider = next.providers[providerId];
-	if (!provider) throw new Error(`models.json 中不存在接入：${providerId}`);
+	if (!provider) throw new Error(t("models.json 中不存在接入：{providerId}", { providerId }));
 	let replaced = false;
 	const models = (provider.models ?? []).flatMap((current) => {
 		if (current.id !== model.id && current.id !== replacedModelId) return [current];
@@ -178,12 +179,12 @@ export function renameModelInDoc(
 	const next = cloneJson(doc);
 	if (oldModelId === newModelId) return next;
 	const provider = next.providers[providerId];
-	if (!provider) throw new Error(`models.json 中不存在接入：${providerId}`);
+	if (!provider) throw new Error(t("models.json 中不存在接入：{providerId}", { providerId }));
 	const models = provider.models ?? [];
 	const source = models.find((model) => model.id === oldModelId);
-	if (!source) throw new Error(`models.json 中不存在待重命名模型：${providerId}/${oldModelId}`);
+	if (!source) throw new Error(t("models.json 中不存在待重命名模型：{fullId}", { fullId: `${providerId}/${oldModelId}` }));
 	if (models.some((model) => model.id === newModelId)) {
-		throw new Error(`models.json 中已存在模型：${providerId}/${newModelId}`);
+		throw new Error(t("models.json 中已存在模型：{fullId}", { fullId: `${providerId}/${newModelId}` }));
 	}
 	source.id = newModelId;
 	return next;

@@ -20,7 +20,7 @@ export interface ProviderPreset {
 const PROVIDER_PRESETS: ProviderPreset[] = [
 	{
 		api: "openai-responses",
-		label: "OpenAI Responses — 标准 instructions / input",
+		label: "OpenAI Responses — instructions / input",
 		shortLabel: "OpenAI Responses",
 		defaultProviderName: "openai-responses",
 		baseUrl: "https://api.openai.com/v1",
@@ -33,7 +33,7 @@ const PROVIDER_PRESETS: ProviderPreset[] = [
 	},
 	{
 		api: "openai-completions",
-		label: "OpenAI Chat Completions — 通用 OpenAI 兼容",
+		label: "OpenAI Chat Completions — OpenAI-compatible",
 		shortLabel: "OpenAI Chat",
 		defaultProviderName: "openai-chat",
 		baseUrl: "https://api.openai.com/v1",

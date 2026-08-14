@@ -4,6 +4,7 @@
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { persistManagedConfiguration } from "./configuration-persistence.ts";
+import { t } from "./i18n.ts";
 import { registerAllFromState } from "./provider-registrar.ts";
 import { deleteRequestHeaderProfileFromDocument, upsertRequestHeaderProfileInDocument } from "./state-document.ts";
 import type { RequestHeaderProfileDraft, StateDocument, StoredProvider } from "./types.ts";
@@ -32,7 +33,7 @@ function notifyHeaderProfileRefresh(
 		ctx.ui.notify(successMessage, "info");
 		return;
 	}
-	ctx.ui.notify(`${successMessage}，但以下接入未能刷新，已保留上一版 runtime：\n- ${warnings.join("\n- ")}`, "warning");
+	ctx.ui.notify(t("{successMessage}，但以下接入未能刷新，已保留上一版 runtime：\n- {warnings}", { successMessage, warnings: warnings.join("\n- ") }), "warning");
 }
 
 export async function saveRequestHeaderProfileConfiguration(
@@ -49,7 +50,7 @@ export async function saveRequestHeaderProfileConfiguration(
 		removedProviderIds: [],
 	}));
 	const warnings = await registerAllFromState(pi, nextState);
-	notifyHeaderProfileRefresh(ctx, `已保存请求头 ${draft.profileId.trim()}`, warnings);
+	notifyHeaderProfileRefresh(ctx, t("已保存请求头 {profileId}", { profileId: draft.profileId.trim() }), warnings);
 }
 
 export async function deleteRequestHeaderProfileConfiguration(
@@ -64,5 +65,5 @@ export async function deleteRequestHeaderProfileConfiguration(
 		removedProviderIds: [],
 	}));
 	const warnings = await registerAllFromState(pi, nextState);
-	notifyHeaderProfileRefresh(ctx, `已删除请求头 ${profileId}`, warnings);
+	notifyHeaderProfileRefresh(ctx, t("已删除请求头 {profileId}", { profileId }), warnings);
 }

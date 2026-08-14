@@ -11,6 +11,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { isBuiltinProviderId } from "./builtin-model-catalog.ts";
 import { mergeCompatSettings } from "./compat-settings.ts";
 import { formatUnknownError } from "./common.ts";
+import { t } from "./i18n.ts";
 import {
 	getLocalProxyBaseUrl,
 	getProviderHttpProxyUrl,
@@ -197,10 +198,10 @@ function replaceManagedProviderConfig(
 			rollbackError = restoreError;
 		}
 		const rollbackNote = rollbackError
-			? `；恢复上一版 runtime 也失败：${formatUnknownError(rollbackError)}`
+			? t("；恢复上一版 runtime 也失败：{error}", { error: formatUnknownError(rollbackError) })
 			: previousConfig
-				? "；已恢复上一版 runtime"
-				: "；新配置未注册到当前 runtime";
+				? t("；已恢复上一版 runtime")
+				: t("；新配置未注册到当前 runtime");
 		throw new Error(`${formatUnknownError(error)}${rollbackNote}`);
 	}
 }

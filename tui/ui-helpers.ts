@@ -9,8 +9,9 @@
 //   - contextWindow 用 K/M 简写
 
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { t } from "../i18n.ts";
 import { getApiKeyEnvVarName, getAuthStatusText, getProviderDisplayName } from "../state-document.ts";
-import { CLIENT_HEADER_PROFILE_LABELS, getClientHeaderProfileDisplay, resolveClientHeaderProfile } from "../presets/client-headers.ts";
+import { getClientHeaderProfileDisplay, getClientHeaderProfileLabel, resolveClientHeaderProfile } from "../presets/client-headers.ts";
 import { redactUrlForDisplay } from "../sensitive-redaction.ts";
 import type {
 	ApiKind,
@@ -23,7 +24,7 @@ import type {
 import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
 
 export function maskSecret(value: string | undefined): string {
-	if (!value) return "<未填写>";
+	if (!value) return t("<未填写>");
 	if (getApiKeyEnvVarName(value) || value.startsWith("!")) return value;
 	return "********";
 }
@@ -96,7 +97,7 @@ function formatProviderHeaderProfile(
 ): string {
 	if (provider.clientHeaderProfile === "recommended") {
 		const resolved = resolveClientHeaderProfile(provider.clientHeaderProfile, provider.api);
-		return `Auto→${CLIENT_HEADER_PROFILE_LABELS[resolved]}`;
+		return `Auto→${getClientHeaderProfileLabel(resolved)}`;
 	}
 	if (provider.clientHeaderProfile === "disabled") return "Off";
 	if (provider.clientHeaderProfile === "custom") {
@@ -107,7 +108,7 @@ function formatProviderHeaderProfile(
 		const inlineCount = Object.keys(provider.customClientHeaders ?? {}).length;
 		return inlineCount > 0 ? `Inline(${inlineCount})` : "Custom?";
 	}
-	return CLIENT_HEADER_PROFILE_LABELS[provider.clientHeaderProfile];
+	return getClientHeaderProfileLabel(provider.clientHeaderProfile);
 }
 
 interface ProviderConsoleCells {
@@ -160,13 +161,13 @@ function getProviderConsoleColumns(cells: ProviderConsoleCells, availableWidth: 
 
 export function formatProviderConsoleHeader(menuWidth: number, options: ProviderTableOptions = {}): string {
 	return formatTableHeader(joinFixedColumns(getProviderConsoleColumns({
-		provider: "接入",
+		provider: t("接入"),
 		api: "API",
-		models: "模型",
-		headers: "请求头",
-		proxy: "代理",
-		auth: "认证",
-		status: "状态",
+		models: t("模型"),
+		headers: t("请求头"),
+		proxy: t("代理"),
+		auth: t("认证"),
+		status: t("状态"),
 	}, Math.max(0, menuWidth - 2), options.nameWidth ?? PROVIDER_NAME_COLUMN_LIMIT)));
 }
 
@@ -206,7 +207,7 @@ export function formatProviderDetailLines(
 	options: ProviderTableOptions = {},
 ): string[] {
 	const { theme, requestHeaderProfiles = {} } = options;
-	const modelIds = provider.models.map((model) => model.id).join(", ") || "<无模型>";
+	const modelIds = provider.models.map((model) => model.id).join(", ") || t("<无模型>");
 	return [
 		formatDetailTitle(getProviderDisplayLabel(providerId, provider), theme),
 		formatDetailField("endpoint", redactUrlForDisplay(provider.baseUrl), theme),
@@ -220,7 +221,7 @@ export function formatProviderSummaryLine(
 	provider: StoredProvider,
 	requestHeaderProfiles: Record<string, StoredRequestHeaderProfile> = {},
 ): string {
-	return `${formatApiShort(provider.api)} · ${provider.models.length} 模型 · headers ${formatProviderHeaderProfile(provider, requestHeaderProfiles)} · proxy ${getProviderProxyText(provider)} · auth ${getAuthKind(provider.apiKey)}`;
+	return `${formatApiShort(provider.api)} · ${provider.models.length} ${t("模型")} · headers ${formatProviderHeaderProfile(provider, requestHeaderProfiles)} · proxy ${getProviderProxyText(provider)} · auth ${getAuthKind(provider.apiKey)}`;
 }
 
 export function formatProviderEndpointLine(provider: StoredProvider): string {
@@ -229,15 +230,15 @@ export function formatProviderEndpointLine(provider: StoredProvider): string {
 }
 
 function formatModelNameCell(model: StoredModel): string {
-	return model.name && model.name !== model.id ? model.name : "默认";
+	return model.name && model.name !== model.id ? model.name : t("默认");
 }
 
 function formatModelInputCell(model: StoredModel): string {
-	return model.input.includes("image") ? "文本,视觉" : "文本";
+	return model.input.includes("image") ? t("文本,视觉") : t("文本");
 }
 
 function formatModelThinkingCell(model: StoredModel): string {
-	return model.reasoning ? "开" : "关";
+	return model.reasoning ? t("开") : t("关");
 }
 
 interface ModelListCells {
@@ -283,9 +284,9 @@ function getModelListColumns(
 ): FixedColumn[] {
 	const modelIdWidth = options.modelIdWidth ?? MODEL_ID_COLUMN_LIMIT;
 	const nameWidth = options.nameWidth ?? MODEL_NAME_COLUMN_LIMIT;
-	const name: FixedColumn = { text: cells.name, width: nameWidth, color: cells.name === "默认" ? "dim" : undefined };
-	const input: FixedColumn = { text: cells.input, width: 10, color: cells.input.includes("视觉") ? "accent" : undefined };
-	const thinking: FixedColumn = { text: cells.thinking, width: 8, color: cells.thinking === "开" ? "accent" : cells.thinking === "关" ? "dim" : undefined };
+	const name: FixedColumn = { text: cells.name, width: nameWidth, color: cells.name === t("默认") ? "dim" : undefined };
+	const input: FixedColumn = { text: cells.input, width: 10, color: cells.input === t("文本,视觉") ? "accent" : undefined };
+	const thinking: FixedColumn = { text: cells.thinking, width: 8, color: cells.thinking === t("开") ? "accent" : cells.thinking === t("关") ? "dim" : undefined };
 	const context: FixedColumn = { text: cells.context, width: 7, align: "right" };
 	const output: FixedColumn = { text: cells.output, width: 7, align: "right" };
 	// [喵喵喵]: priority 会消耗 Fast 额度，用 warning 提醒而不是当普通开关。
@@ -331,12 +332,12 @@ function getModelListCells(model?: StoredModel): ModelListCells {
 			fast: model.openAIServiceTier === "priority" ? "priority" : "off",
 		}
 		: {
-			modelId: "模型 ID",
-			name: "显示名",
-			input: "输入",
+			modelId: t("模型 ID"),
+			name: t("显示名"),
+			input: t("输入"),
 			thinking: "Thinking",
-			context: "上下文",
-			output: "输出",
+			context: t("上下文"),
+			output: t("输出"),
 			fast: "Fast",
 		};
 }
@@ -354,19 +355,23 @@ export function formatModelListRow(
 	return joinFixedColumns(getModelListColumns(provider, getModelListCells(model), availableWidth, options), options.theme);
 }
 
-export const API_CHOICES: { id: ApiKind; label: string }[] = [
-	{ id: "openai-responses", label: "OpenAI Responses · 标准 instructions/input wire" },
-	{ id: "openai-completions", label: "OpenAI Chat · 传统 chat/completions 兼容" },
-	{ id: "anthropic-messages", label: "Anthropic Messages · Claude / Claude Code 兼容" },
-	{ id: "google-generative-ai", label: "Google Gemini · Gemini 原生 API" },
-];
+export function getApiChoices(): { id: ApiKind; label: string }[] {
+	return [
+		{ id: "openai-responses", label: t("OpenAI Responses · 标准 instructions/input wire") },
+		{ id: "openai-completions", label: t("OpenAI Chat · 传统 chat/completions 兼容") },
+		{ id: "anthropic-messages", label: t("Anthropic Messages · Claude / Claude Code 兼容") },
+		{ id: "google-generative-ai", label: t("Google Gemini · Gemini 原生 API") },
+	];
+}
 
-export const BUILT_IN_PROFILE_CHOICES: { id: Exclude<ClientHeaderProfileId, "custom">; label: string }[] = [
-	{ id: "recommended", label: "自动推荐" },
-	{ id: "disabled", label: "不添加" },
-	{ id: "claude-code", label: "ClaudeCode" },
-	{ id: "codex-cli", label: "Codex" },
-];
+export function getBuiltInProfileChoices(): { id: Exclude<ClientHeaderProfileId, "custom">; label: string }[] {
+	return [
+		{ id: "recommended", label: t("自动推荐") },
+		{ id: "disabled", label: t("不添加") },
+		{ id: "claude-code", label: "ClaudeCode" },
+		{ id: "codex-cli", label: "Codex" },
+	];
+}
 
 export function describeProfile(
 	profile: ClientHeaderProfileId,
@@ -375,15 +380,17 @@ export function describeProfile(
 	requestHeaderProfiles: Record<string, StoredRequestHeaderProfile> = {},
 ): string {
 	if (profile !== "custom") return getClientHeaderProfileDisplay(profile, api);
-	if (!requestHeaderProfileId) return "自定义请求头（未选择）";
+	if (!requestHeaderProfileId) return t("自定义请求头（未选择）");
 	const selected = requestHeaderProfiles[requestHeaderProfileId];
-	return selected ? `${selected.name} (${requestHeaderProfileId})` : `自定义请求头缺失：${requestHeaderProfileId}`;
+	return selected ? `${selected.name} (${requestHeaderProfileId})` : t("自定义请求头缺失：{id}", { id: requestHeaderProfileId });
 }
 
-export const VISION_INPUT_CHOICES: { enabled: boolean; kinds: ModelInputKind[]; label: string }[] = [
-	{ enabled: false, kinds: ["text"], label: "关闭 — 仅文本输入" },
-	{ enabled: true, kinds: ["text", "image"], label: "开启 — 文本 + 图片输入" },
-];
+export function getVisionInputChoices(): { enabled: boolean; kinds: ModelInputKind[]; label: string }[] {
+	return [
+		{ enabled: false, kinds: ["text"], label: t("关闭 — 仅文本输入") },
+		{ enabled: true, kinds: ["text", "image"], label: t("开启 — 文本 + 图片输入") },
+	];
+}
 
 export function supportsVisionInput(kinds: ModelInputKind[]): boolean {
 	return kinds.includes("image");
@@ -391,5 +398,5 @@ export function supportsVisionInput(kinds: ModelInputKind[]): boolean {
 
 // 字段名已经说明了含义，值只需要跟 Thinking / Fast mode 一样给出开关状态。
 export function describeVisionInput(kinds: ModelInputKind[]): string {
-	return supportsVisionInput(kinds) ? "开启" : "关闭";
+	return supportsVisionInput(kinds) ? t("开启") : t("关闭");
 }

@@ -8,6 +8,7 @@ import http, { type IncomingHttpHeaders, type IncomingMessage, type ServerRespon
 import https from "node:https";
 import { HttpProxyAgent } from "http-proxy-agent";
 import { HttpsProxyAgent } from "https-proxy-agent";
+import { t } from "./i18n.ts";
 import { redactSensitiveText, redactUrlForDisplay } from "./sensitive-redaction.ts";
 import type { StoredProvider } from "./types.ts";
 import { DEFAULT_PROVIDER_HTTP_PROXY_URL } from "./types.ts";
@@ -54,7 +55,7 @@ function parseHttpProxyUrl(proxyUrl: string | undefined): URL {
 	try {
 		parsed = new URL(normalized);
 	} catch {
-		throw new Error(`代理地址无效：${redactUrlForDisplay(normalized)}`);
+		throw new Error(t("代理地址无效：{url}", { url: redactUrlForDisplay(normalized) }));
 	}
 	ensureSupportedProxyProtocol(parsed);
 	return parsed;
@@ -88,7 +89,7 @@ function getHostHeader(url: URL): string {
 
 function ensureSupportedProxyProtocol(proxy: URL): void {
 	if (proxy.protocol !== "http:" && proxy.protocol !== "https:") {
-		throw new Error("代理地址目前只支持 http:// 或 https:// 代理");
+		throw new Error(t("代理地址目前只支持 http:// 或 https:// 代理"));
 	}
 }
 
@@ -111,11 +112,11 @@ function formatProxyError(error: unknown): string {
 		if (!message) {
 			const code = (error as Error & { code?: string }).code;
 			message = code
-				? `代理请求失败：${code}`
-				: error.stack?.trim().split("\n", 1)[0] ?? `${error.name || "Error"}（无错误消息）`;
+				? t("代理请求失败：{code}", { code })
+				: error.stack?.trim().split("\n", 1)[0] ?? `${error.name || "Error"} (${t("无错误消息")})`;
 		}
 	} else {
-		message = String(error).trim() || "未知代理错误";
+		message = String(error).trim() || t("未知代理错误");
 	}
 	return redactSensitiveText(message);
 }
@@ -209,7 +210,7 @@ function forwardRequest(route: ProviderProxyRoute, request: IncomingMessage, res
 		forwardHttps(target, proxy, request, response);
 		return;
 	}
-	throw new Error(`不支持的上游协议：${target.protocol}`);
+	throw new Error(t("不支持的上游协议：{protocol}", { protocol: target.protocol }));
 }
 
 function handleRequest(request: IncomingMessage, response: ServerResponse): void {
@@ -245,7 +246,7 @@ function clearServerState(expected: http.Server): void {
 }
 
 async function ensureServer(): Promise<number> {
-	if (closingPromise) throw new Error("本地代理服务正在关闭，请稍后重试");
+	if (closingPromise) throw new Error(t("本地代理服务正在关闭，请稍后重试"));
 	if (listenPort !== undefined) return listenPort;
 	if (listenPromise) return listenPromise;
 
@@ -257,7 +258,7 @@ async function ensureServer(): Promise<number> {
 			const address = nextServer.address();
 			if (!address || typeof address === "string") {
 				nextServer.off("error", rejectListen);
-				reject(new Error("本地代理转发服务监听地址异常"));
+				reject(new Error(t("本地代理转发服务监听地址异常")));
 				return;
 			}
 			nextServer.off("error", rejectListen);
@@ -280,7 +281,7 @@ async function ensureServer(): Promise<number> {
 
 async function ensureServerForRoute(): Promise<number> {
 	const port = await ensureServer();
-	if (closingPromise) throw new Error("本地代理服务正在关闭，请稍后重试");
+	if (closingPromise) throw new Error(t("本地代理服务正在关闭，请稍后重试"));
 	return port;
 }
 

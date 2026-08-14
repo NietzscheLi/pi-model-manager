@@ -7,6 +7,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import { t } from "./i18n.ts";
 
 const REPLACE_RETRY_DELAYS_MS = [25, 50, 100, 200, 400, 800] as const;
 const TRANSIENT_REPLACE_ERROR_CODES = new Set(["EACCES", "EPERM", "EBUSY", "ENOTEMPTY"]);
@@ -66,7 +67,8 @@ export async function atomicWriteText(targetPath: string, content: string): Prom
 		await renameWithRetry(tempPath, targetPath);
 	} catch (error) {
 		if (!tempHasCompleteContent) await removeTempFile(tempPath);
-		const recoveryNote = tempHasCompleteContent ? `；完整内容已保留在临时文件：${tempPath}` : "";
-		throw new Error(`写入 ${targetPath} 失败${recoveryNote}：${formatError(error)}`);
+		throw new Error(tempHasCompleteContent
+			? t("写入 {targetPath} 失败；完整内容已保留在临时文件：{tempPath}：{error}", { targetPath, tempPath, error: formatError(error) })
+			: t("写入 {targetPath} 失败：{error}", { targetPath, error: formatError(error) }));
 	}
 }

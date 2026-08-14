@@ -1,6 +1,7 @@
 // 通用小工具：JSON 解析、字符串处理、错误格式化、克隆。
 // 与 pi-model-add/common.ts 等价；后续 step 不再依赖旧插件。
 
+import { t } from "./i18n.ts";
 export function isObjectRecord(value: unknown): value is Record<string, unknown> {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -30,10 +31,10 @@ export function hasStringRecordEntries(record: Record<string, string> | undefine
 
 export function parseStringRecordJson(source: string, label: string): Record<string, string> {
 	const parsed = JSON.parse(stripJsonNoise(source));
-	if (!isObjectRecord(parsed)) throw new Error(`${label} JSON 必须是对象`);
+	if (!isObjectRecord(parsed)) throw new Error(t("{label} JSON 必须是对象", { label }));
 	const record: Record<string, string> = {};
 	for (const [key, value] of Object.entries(parsed)) {
-		if (typeof value !== "string") throw new Error(`${label} ${key} 的值必须是字符串`);
+		if (typeof value !== "string") throw new Error(t("{label} {key} 的值必须是字符串", { label, key }));
 		const trimmedKey = key.trim();
 		if (trimmedKey) record[trimmedKey] = value;
 	}

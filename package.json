@@ -1,6 +1,6 @@
 {
   "name": "pi-model-manager",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "A TUI model and provider manager for Pi with native models.json persistence, request-header profiles, proxy routing, and protocol compatibility.",
   "type": "module",
   "main": "./index.ts",
@@ -11,6 +11,8 @@
     "NOTICE",
     "README.en.md",
     "index.ts",
+    "i18n.ts",
+    "ui-language-settings.ts",
     "state-store.ts",
     "state-metadata-store.ts",
     "state-cache.ts",
@@ -67,7 +69,7 @@
     ]
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": ">=0.82.0",
+    "@earendil-works/pi-coding-agent": ">=0.84.2",
     "@earendil-works/pi-tui": ">=0.75.0"
   },
   "dependencies": {

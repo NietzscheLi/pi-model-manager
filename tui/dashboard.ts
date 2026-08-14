@@ -11,6 +11,8 @@
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { formatUnknownError } from "../common.ts";
+import { getUiLanguage, setUiLanguage, t, type UiLanguage } from "../i18n.ts";
+import { writeUiLanguage } from "../ui-language-settings.ts";
 import {
 	deleteModelConfiguration,
 	deleteProviderConfiguration,
@@ -35,7 +37,7 @@ import { getBuiltinProviderIds } from "../builtin-model-catalog.ts";
 import type { StateDocument, StoredModel, StoredProvider } from "../types.ts";
 import { editModel } from "./editor-model.ts";
 import { editProvider } from "./editor-provider.ts";
-import { showPersistentShortcutMenu, type MenuCursor } from "./persistent-menu.ts";
+import { showOptionPicker, showPersistentShortcutMenu, type MenuCursor } from "./persistent-menu.ts";
 import {
 	formatModelListHeader,
 	formatModelListRow,
@@ -85,12 +87,33 @@ function buildProviderMenuRows(provider: StoredProvider): ProviderMenuRow[] {
 }
 
 function notifyValidationErrors(ctx: ExtensionCommandContext, title: string, errors: string[]): void {
-	ctx.ui.notify(`${title}：\n${errors.map((e) => `- ${e}`).join("\n")}`, "warning");
+	ctx.ui.notify(t("{title}：\n{errors}", { title, errors: errors.map((error) => `- ${error}`).join("\n") }), "warning");
 }
 
 async function confirmWarnings(ctx: ExtensionCommandContext, warnings: string[]): Promise<boolean> {
 	if (warnings.length === 0) return true;
-	return ctx.ui.confirm("请确认改动", `${warnings.join("\n")}\n\n继续保存？`);
+	return ctx.ui.confirm(t("请确认改动"), t("{warnings}\n\n继续保存？", { warnings: warnings.join("\n") }));
+}
+
+async function selectUiLanguage(ctx: ExtensionCommandContext): Promise<void> {
+	const currentLanguage = getUiLanguage();
+	const choice = await showOptionPicker<{ id: UiLanguage; label: string }>(
+		ctx,
+		"语言 / Language",
+		[
+			{ id: "zh-CN", label: "简体中文 / Simplified Chinese" },
+			{ id: "en", label: "English" },
+		],
+		currentLanguage,
+	);
+	if (!choice || choice.id === currentLanguage) return;
+	try {
+		await writeUiLanguage(choice.id);
+		setUiLanguage(choice.id);
+		ctx.ui.notify(t("语言已切换为 {language}", { language: choice.id === "en" ? "English" : "简体中文" }), "info");
+	} catch (error) {
+		ctx.ui.notify(t("语言设置保存失败：{error}", { error: formatUnknownError(error) }), "error");
+	}
 }
 
 
@@ -106,7 +129,7 @@ async function saveProviderDraft(
 	const builtInIds = await getBuiltinProviderIds();
 	const errors = validateProviderDraft(draft, state, builtInIds, oldProviderId);
 	if (errors.length > 0) {
-		notifyValidationErrors(ctx, "接入配置无效", errors);
+		notifyValidationErrors(ctx, t("接入配置无效"), errors);
 		return false;
 	}
 	const current = oldProviderId ? state.providers[oldProviderId] : state.providers[draft.providerId];
@@ -116,7 +139,7 @@ async function saveProviderDraft(
 		await saveProviderConfiguration(pi, ctx, state, draft, oldProviderId);
 		return true;
 	} catch (error) {
-		ctx.ui.notify(`保存失败：${formatUnknownError(error)}`, "error");
+		ctx.ui.notify(t("保存失败：{error}", { error: formatUnknownError(error) }), "error");
 		return false;
 	}
 }
@@ -130,14 +153,14 @@ async function saveModelDraft(
 	const state = await readState();
 	const errors = validateModelDraft(draft, state, replacedModelId);
 	if (errors.length > 0) {
-		notifyValidationErrors(ctx, "模型配置无效", errors);
+		notifyValidationErrors(ctx, t("模型配置无效"), errors);
 		return false;
 	}
 	try {
 		await saveModelConfiguration(pi, ctx, state, draft, replacedModelId);
 		return true;
 	} catch (error) {
-		ctx.ui.notify(`保存失败：${formatUnknownError(error)}`, "error");
+		ctx.ui.notify(t("保存失败：{error}", { error: formatUnknownError(error) }), "error");
 		return false;
 	}
 }
@@ -152,20 +175,20 @@ async function saveNewProviderAndModelDraft(
 	const builtInIds = await getBuiltinProviderIds();
 	const providerErrors = validateProviderDraft(providerDraft, state, builtInIds, undefined);
 	if (providerErrors.length > 0) {
-		notifyValidationErrors(ctx, "接入配置无效", providerErrors);
+		notifyValidationErrors(ctx, t("接入配置无效"), providerErrors);
 		return false;
 	}
 	const providerState = upsertProviderInDocument(state, undefined, providerDraft);
 	const modelErrors = validateModelDraft(modelDraft, providerState, undefined);
 	if (modelErrors.length > 0) {
-		notifyValidationErrors(ctx, "模型配置无效", modelErrors);
+		notifyValidationErrors(ctx, t("模型配置无效"), modelErrors);
 		return false;
 	}
 	try {
 		await saveNewProviderWithModelConfiguration(pi, ctx, providerState, providerDraft, modelDraft);
 		return true;
 	} catch (error) {
-		ctx.ui.notify(`保存失败：${formatUnknownError(error)}`, "error");
+		ctx.ui.notify(t("保存失败：{error}", { error: formatUnknownError(error) }), "error");
 		return false;
 	}
 }
@@ -174,15 +197,15 @@ async function saveNewProviderAndModelDraft(
 
 async function deleteProvider(pi: ExtensionAPI, ctx: ExtensionCommandContext, providerId: string, provider: StoredProvider): Promise<boolean> {
 	const ok = await ctx.ui.confirm(
-		`删除接入 ${providerId}`,
-		`将删除 ${getProviderDisplayName(providerId, provider)} 下全部 ${provider.models.length} 个模型。`,
+		t("删除接入 {providerId}", { providerId }),
+		t("将删除 {name} 下全部 {count} 个模型。", { name: getProviderDisplayName(providerId, provider), count: provider.models.length }),
 	);
 	if (!ok) return false;
 	try {
 		await deleteProviderConfiguration(pi, ctx, providerId, provider);
 		return true;
 	} catch (error) {
-		ctx.ui.notify(`删除失败：${formatUnknownError(error)}`, "error");
+		ctx.ui.notify(t("删除失败：{error}", { error: formatUnknownError(error) }), "error");
 		return false;
 	}
 }
@@ -193,15 +216,15 @@ async function deleteModel(pi: ExtensionAPI, ctx: ExtensionCommandContext, provi
 	const currentProvider = stateForPrompt.providers[providerId];
 	const removesLastModel = (currentProvider?.models.length ?? 0) <= 1;
 	const ok = await ctx.ui.confirm(
-		`删除模型 ${fullId}`,
-		removesLastModel ? "这是该接入下最后一个模型；删除后接入也会从 models.json 中移除。" : "只删除该模型，接入保留。",
+		t("删除模型 {fullId}", { fullId }),
+		removesLastModel ? t("这是该接入下最后一个模型；删除后接入也会从 models.json 中移除。") : t("只删除该模型，接入保留。"),
 	);
 	if (!ok) return false;
 	try {
 		await deleteModelConfiguration(pi, ctx, providerId, modelId);
 		return true;
 	} catch (error) {
-		ctx.ui.notify(`删除失败：${formatUnknownError(error)}`, "error");
+		ctx.ui.notify(t("删除失败：{error}", { error: formatUnknownError(error) }), "error");
 		return false;
 	}
 }
@@ -221,11 +244,11 @@ async function editStoredModel(
 ): Promise<boolean> {
 	const model = provider.models.find((m) => m.id === modelId);
 	if (!model) {
-		ctx.ui.notify(`模型不存在：${getModelFullId(providerId, modelId)}`, "error");
+		ctx.ui.notify(t("模型不存在：{fullId}", { fullId: getModelFullId(providerId, modelId) }), "error");
 		return false;
 	}
 	const draft = createModelDraftFromStoredModel(providerId, provider, model);
-	const outcome = await editModel(ctx, draft, `编辑模型 ${getModelFullId(providerId, modelId)}`, requestHeaderProfiles, clientHeaderCaptures);
+	const outcome = await editModel(ctx, draft, t("编辑模型 {fullId}", { fullId: getModelFullId(providerId, modelId) }), requestHeaderProfiles, clientHeaderCaptures);
 	if (outcome.action !== "save") return false;
 	return saveModelDraft(pi, ctx, outcome.draft, modelId);
 }
@@ -236,7 +259,7 @@ async function showProviderMenu(pi: ExtensionAPI, ctx: ExtensionCommandContext, 
 		const state = await readState();
 		const currentProvider = state.providers[providerId];
 		if (!currentProvider) {
-			ctx.ui.notify(`接入配置已不存在：${providerId}`, "warning");
+			ctx.ui.notify(t("接入配置已不存在：{providerId}", { providerId }), "warning");
 			return true;
 		}
 		const rows = buildProviderMenuRows(currentProvider);
@@ -264,27 +287,27 @@ async function showProviderMenu(pi: ExtensionAPI, ctx: ExtensionCommandContext, 
 				},
 				visibleRows: Math.min(12, Math.max(1, rows.length)),
 				hints: [
-					{ key: "↑↓", label: "选择" },
-					{ key: "Enter", label: "编辑模型" },
-					{ key: "A", label: "添加模型" },
-					{ key: "E", label: "编辑接入" },
-					{ key: "D", label: "删除模型" },
-					{ key: "Esc", label: "返回" },
+					{ key: "↑↓", label: t("选择") },
+					{ key: "Enter", label: t("编辑模型") },
+					{ key: "A", label: t("添加模型") },
+					{ key: "E", label: t("编辑接入") },
+					{ key: "D", label: t("删除模型") },
+					{ key: "Esc", label: t("返回") },
 				],
-				emptyLabel: "暂无模型；按 a 添加第一个模型",
+				emptyLabel: t("暂无模型；按 a 添加第一个模型"),
 			},
 		);
 		if (action.type === "cancel") return false;
 		if (action.type === "shortcut") {
 			if (action.shortcut === "add-model") {
 				const draft = createModelDraftForStoredProvider(providerId, currentProvider);
-				const outcome = await editModel(ctx, draft, `添加模型到 ${providerId}`, state.requestHeaderProfiles, state.clientHeaderCaptures);
+				const outcome = await editModel(ctx, draft, t("添加模型到 {providerId}", { providerId }), state.requestHeaderProfiles, state.clientHeaderCaptures);
 				if (outcome.action === "save") await saveModelDraft(pi, ctx, outcome.draft, undefined);
 				continue;
 			}
 			if (action.shortcut === "edit-provider") {
 				const draft = createProviderDraftFromStored(providerId, currentProvider);
-				const outcome = await editProvider(ctx, draft, `编辑接入 ${providerId}`, state.requestHeaderProfiles);
+				const outcome = await editProvider(ctx, draft, t("编辑接入 {providerId}", { providerId }), state.requestHeaderProfiles);
 				if (outcome.action === "save") {
 					await saveProviderDraft(pi, ctx, outcome.draft, providerId);
 					if (outcome.draft.providerId !== providerId) return true;
@@ -293,7 +316,7 @@ async function showProviderMenu(pi: ExtensionAPI, ctx: ExtensionCommandContext, 
 			}
 			const selectedModelId = rows[cursor.index]?.modelId;
 			if (!selectedModelId) {
-				ctx.ui.notify("没有可删除的模型；删除接入请返回上一级按 d。", "info");
+				ctx.ui.notify(t("没有可删除的模型；删除接入请返回上一级按 d。"), "info");
 				continue;
 			}
 			await deleteModel(pi, ctx, providerId, selectedModelId);
@@ -314,21 +337,21 @@ async function createProviderAndModel(pi: ExtensionAPI, ctx: ExtensionCommandCon
 		const providerOutcome = await editProvider(
 			ctx,
 			providerDraft,
-			"新建接入配置",
+			t("新建接入配置"),
 			stateBeforeEdit.requestHeaderProfiles,
 		);
 		if (providerOutcome.action !== "save") return false;
 		const providerErrors = validateProviderDraft(providerOutcome.draft, stateBeforeEdit, builtInIds, undefined);
 		if (providerErrors.length > 0) {
-			notifyValidationErrors(ctx, "接入配置无效", providerErrors);
+			notifyValidationErrors(ctx, t("接入配置无效"), providerErrors);
 			continue;
 		}
 
 		const stagedState = upsertProviderInDocument(stateBeforeEdit, undefined, providerOutcome.draft);
 		const stored = stagedState.providers[providerOutcome.draft.providerId]!;
-		ctx.ui.notify("请继续添加第一个模型；取消模型编辑则不会创建该接入。", "info");
+		ctx.ui.notify(t("请继续添加第一个模型；取消模型编辑则不会创建该接入。"), "info");
 		const modelDraft = createModelDraftForStoredProvider(providerOutcome.draft.providerId, stored);
-		const modelOutcome = await editModel(ctx, modelDraft, `添加模型到 ${providerOutcome.draft.providerId}`, stagedState.requestHeaderProfiles, stagedState.clientHeaderCaptures);
+		const modelOutcome = await editModel(ctx, modelDraft, t("添加模型到 {providerId}", { providerId: providerOutcome.draft.providerId }), stagedState.requestHeaderProfiles, stagedState.clientHeaderCaptures);
 		if (modelOutcome.action !== "save") return false;
 		return saveNewProviderAndModelDraft(pi, ctx, providerOutcome.draft, modelOutcome.draft);
 	}
@@ -336,7 +359,7 @@ async function createProviderAndModel(pi: ExtensionAPI, ctx: ExtensionCommandCon
 
 // ========== 入口 ==========
 
-type DashboardShortcut = "new-provider" | "header-profiles" | "delete-provider";
+type DashboardShortcut = "new-provider" | "header-profiles" | "delete-provider" | "language";
 
 export async function runDashboard(pi: ExtensionAPI, ctx: ExtensionCommandContext): Promise<void> {
 	const cursor: MenuCursor = { index: 0 };
@@ -361,9 +384,15 @@ export async function runDashboard(pi: ExtensionAPI, ctx: ExtensionCommandContex
 				{ input: "n", shortcut: "new-provider" },
 				{ input: "h", shortcut: "header-profiles" },
 				{ input: "d", shortcut: "delete-provider" },
+				{ input: "l", shortcut: "language" },
 			],
 			{
-				summaryLines: [`${rows.length} 接入 · ${modelCount} 模型 · ${captureCount} 内置抓包 · ${profileCount} 自定义请求头`],
+				summaryLines: [t("{providers} 接入 · {models} 模型 · {captures} 内置抓包 · {profiles} 自定义请求头", {
+					providers: rows.length,
+					models: modelCount,
+					captures: captureCount,
+					profiles: profileCount,
+				})],
 				tableHeader: (width) => formatProviderConsoleHeader(width, { nameWidth }),
 				formatRow: (menuRow, width, theme) => {
 					const row = rows[Number.parseInt(menuRow.id, 10)];
@@ -380,25 +409,27 @@ export async function runDashboard(pi: ExtensionAPI, ctx: ExtensionCommandContex
 						: [];
 				},
 				hints: [
-					{ key: "↑↓", label: "选择" },
-					{ key: "Enter", label: "进入" },
-					{ key: "N", label: "新建接入" },
-					{ key: "D", label: "删除接入" },
-					{ key: "H", label: "请求头" },
-					{ key: "Esc", label: "退出" },
+					{ key: "↑↓", label: t("选择") },
+					{ key: "Enter", label: t("进入") },
+					{ key: "N", label: t("新建接入") },
+					{ key: "D", label: t("删除接入") },
+					{ key: "H", label: t("请求头管理") },
+					{ key: "L", label: "语言 / Language" },
+					{ key: "Esc", label: t("退出") },
 				],
-				emptyLabel: "暂无自定义接入；按 n 新建",
+				emptyLabel: t("暂无自定义接入；按 n 新建"),
 			},
 		);
 		if (action.type === "cancel") return;
 		if (action.type === "shortcut") {
 			if (action.shortcut === "new-provider") await createProviderAndModel(pi, ctx);
 			if (action.shortcut === "header-profiles") await runHeaderProfilesPanel(pi, ctx);
+			if (action.shortcut === "language") await selectUiLanguage(ctx);
 			if (action.shortcut === "delete-provider") {
 				const selectedProviderId = rows[cursor.index]?.providerId;
 				const selectedProvider = selectedProviderId ? state.providers[selectedProviderId] : undefined;
 				if (selectedProviderId && selectedProvider) await deleteProvider(pi, ctx, selectedProviderId, selectedProvider);
-				else ctx.ui.notify("没有可删除的接入。", "info");
+				else ctx.ui.notify(t("没有可删除的接入。"), "info");
 			}
 			continue;
 		}
@@ -407,7 +438,7 @@ export async function runDashboard(pi: ExtensionAPI, ctx: ExtensionCommandContex
 		const row = rows[index]!;
 		const provider = state.providers[row.providerId];
 		if (!provider) {
-			ctx.ui.notify(`接入配置已不存在：${row.providerId}`, "warning");
+			ctx.ui.notify(t("接入配置已不存在：{providerId}", { providerId: row.providerId }), "warning");
 			continue;
 		}
 		await showProviderMenu(pi, ctx, row.providerId);

@@ -2,13 +2,13 @@
 
 [English](./README.en.md) · 简体中文
 
-[![Pi](https://img.shields.io/badge/Pi-%3E%3D0.82.0-6f42c1)](https://github.com/earendil-works/pi)
+[![Pi](https://img.shields.io/badge/Pi-%3E%3D0.84.2-6f42c1)](https://github.com/earendil-works/pi)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-0.3.0-2f81f7.svg)](https://github.com/Qihuanxishini/pi-model-manager)
+[![Version](https://img.shields.io/badge/version-0.3.1-2f81f7.svg)](https://github.com/Qihuanxishini/pi-model-manager)
 
 一个面向 [Pi](https://github.com/earendil-works/pi) 的 TUI 模型与接入管理扩展。它以 Pi 原生 `models.json` 为模型配置的唯一权威来源，并提供接入/模型编辑、请求头身份、代理路由和协议兼容配置。
 
-> 当前稳定版为 `0.3.0`，要求 Pi `>=0.82.0`。
+> 当前稳定版为 `0.3.1`，要求 Pi `>=0.84.2`。
 
 ## 界面预览
 
@@ -126,6 +126,7 @@ Ctrl+S 保存并启用模型；不切换当前会话模型
 ## 功能
 
 - 在 `/model-manager` TUI 中新增、编辑和删除接入与模型。
+- 界面默认使用简体中文；可在主面板按 `L` 切换为 English，语言选择会持久保存。
 - 原生支持 `openai-completions`、`openai-responses`、`anthropic-messages` 和 `google-generative-ai`。
 - 从兼容上游拉取模型 ID，也可手动填写模型。
 - 配置上下文窗口、最大输出、视觉支持和 Thinking。
@@ -181,6 +182,7 @@ pi install npm:pi-model-manager
    | `N` | 新建接入及其第一个模型 |
    | `D` | 删除所选接入 |
    | `H` | 管理可复用请求头 |
+   | `L` | 切换界面语言（简体中文 / English），选择后立即生效并持久保存 |
    | `/` | 搜索当前列表；`Tab` 退出输入但保留过滤，`Esc` 清空 |
    | `Esc` | 返回或退出 |
 
@@ -270,11 +272,11 @@ ${ANTHROPIC_API_KEY}
 
 | 组件 | 要求 |
 | --- | --- |
-| `@earendil-works/pi-coding-agent` | `>=0.82.0` |
+| `@earendil-works/pi-coding-agent` | `>=0.84.2` |
 | `@earendil-works/pi-tui` | `>=0.75.0` |
 | 运行模式 | `/model-manager` 需要 Pi TUI |
 
-当前 TUI 文案为简体中文。
+默认 TUI 文案为简体中文；可在主面板按 `L` 切换为 English。
 
 ## 本地开发
 

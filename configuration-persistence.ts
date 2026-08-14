@@ -11,6 +11,7 @@ import { atomicWriteText } from "./atomic-write.ts";
 import { formatUnknownError, isObjectRecord, stringifyJson } from "./common.ts";
 import { withConfigurationLock } from "./configuration-lock.ts";
 import { hashTextContent, readStableTextFileSnapshot } from "./file-snapshot.ts";
+import { t } from "./i18n.ts";
 import {
 	MODELS_JSON_PATH,
 	markManagedProvidersInDoc,
@@ -74,18 +75,18 @@ function createTransition(oldSource: string | undefined, targetSource: string): 
 }
 
 function readTransition(raw: unknown, path: string): FileTransition {
-	if (!isObjectRecord(raw)) throw new Error(`${path} 必须是对象`);
+	if (!isObjectRecord(raw)) throw new Error(t("{path} 必须是对象", { path }));
 	const oldSource = raw.oldSource;
 	const oldHash = raw.oldHash;
 	const targetSource = raw.targetSource;
 	const targetHash = raw.targetHash;
-	if (oldSource !== null && typeof oldSource !== "string") throw new Error(`${path}.oldSource 必须是字符串或 null`);
+	if (oldSource !== null && typeof oldSource !== "string") throw new Error(t("{path}.oldSource 必须是字符串或 null", { path }));
 	if (typeof oldHash !== "string" || typeof targetSource !== "string" || typeof targetHash !== "string") {
-		throw new Error(`${path} 缺少有效内容或签名`);
+		throw new Error(t("{path} 缺少有效内容或签名", { path }));
 	}
 	const normalizedOldSource = oldSource === null ? undefined : oldSource;
 	if (hashTextContent(normalizedOldSource) !== oldHash || hashTextContent(targetSource) !== targetHash) {
-		throw new Error(`${path} 内容签名校验失败`);
+		throw new Error(t("{path} 内容签名校验失败", { path }));
 	}
 	return { oldSource, oldHash, targetSource, targetHash };
 }
@@ -93,7 +94,7 @@ function readTransition(raw: unknown, path: string): FileTransition {
 function parseTransactionJournal(source: string): ConfigurationTransactionJournal {
 	const raw = JSON.parse(source);
 	if (!isObjectRecord(raw) || raw.version !== 1 || typeof raw.createdAt !== "string") {
-		throw new Error("事务意图文件格式无效");
+		throw new Error(t("事务意图文件格式无效"));
 	}
 	return {
 		version: 1,
@@ -115,14 +116,14 @@ async function classifyTransition(path: string, transition: FileTransition): Pro
 	const current = await readStableTextFileSnapshot(path);
 	if (current.contentHash === transition.targetHash) return "target";
 	if (current.contentHash === transition.oldHash) return "old";
-	throw new Error(`${path} 的当前内容既不是事务旧版本，也不是目标版本；已保留 ${TRANSACTION_PATH}，不会覆盖外部修改。`);
+	throw new Error(t("{path} 的当前内容既不是事务旧版本，也不是目标版本；已保留 {transactionPath}，不会覆盖外部修改。", { path, transactionPath: TRANSACTION_PATH }));
 }
 
 async function finishTransition(path: string, transition: FileTransition, status: "old" | "target"): Promise<void> {
 	if (status === "old") await atomicWriteText(path, transition.targetSource);
 	const completed = await readStableTextFileSnapshot(path);
 	if (completed.contentHash !== transition.targetHash) {
-		throw new Error(`${path} 写入后内容签名不匹配；已保留 ${TRANSACTION_PATH} 供恢复。`);
+		throw new Error(t("{path} 写入后内容签名不匹配；已保留 {transactionPath} 供恢复。", { path, transactionPath: TRANSACTION_PATH }));
 	}
 }
 
@@ -133,7 +134,7 @@ async function recoverPendingConfigurationTransactionInsideLock(): Promise<boole
 	try {
 		journal = parseTransactionJournal(journalSnapshot.source);
 	} catch (error) {
-		throw new Error(`无法解析未完成事务 ${TRANSACTION_PATH}：${formatUnknownError(error)}`);
+		throw new Error(t("无法解析未完成事务 {transactionPath}：{error}", { transactionPath: TRANSACTION_PATH, error: formatUnknownError(error) }));
 	}
 
 	// 先同时判定两端，任何一端存在外部修改时都不继续写另一端。
@@ -155,7 +156,7 @@ export async function recoverPendingConfigurationTransaction(): Promise<boolean>
 async function assertSnapshotStillCurrent(path: string, expectedHash: string): Promise<void> {
 	const current = await readStableTextFileSnapshot(path);
 	if (current.contentHash !== expectedHash) {
-		throw new Error(`${path} 已被其它进程或编辑器修改；已取消本次保存，请重新打开 /model-manager 后重试。`);
+		throw new Error(t("{path} 已被其它进程或编辑器修改；已取消本次保存，请重新打开 /model-manager 后重试。", { path }));
 	}
 }
 
@@ -186,7 +187,7 @@ async function writeConfigurationTransaction(
 		await finishTransition(STATE_PATH, journal.metadataState, metadataStatus);
 		await removeTransactionJournal();
 	} catch (error) {
-		throw new Error(`配置事务未完成：${formatUnknownError(error)}。下次启动或保存会尝试恢复。`);
+		throw new Error(t("配置事务未完成：{error}。下次启动或保存会尝试恢复。", { error: formatUnknownError(error) }));
 	}
 }
 
@@ -232,12 +233,12 @@ async function refreshRegistryAfterPersistence(
 		document = await withConfigurationLock(persist);
 		invalidateStateCache();
 	} catch (error) {
-		throw new Error(`models.json/state.json 未完整保存：${formatUnknownError(error)}`);
+		throw new Error(t("models.json/state.json 未完整保存：{error}", { error: formatUnknownError(error) }));
 	}
 	try {
 		await ctx.modelRegistry.refresh();
 	} catch (error) {
-		throw new Error(`models.json/state.json 已写入，但当前会话 registry 重载失败：${formatUnknownError(error)}。可执行 /reload 重试。`);
+		throw new Error(t("models.json/state.json 已写入，但当前会话 registry 重载失败：{error}。可执行 /reload 重试。", { error: formatUnknownError(error) }));
 	}
 	return document;
 }

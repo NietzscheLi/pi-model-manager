@@ -8,6 +8,7 @@ import { getBuiltinProviderDefaults } from "./builtin-model-catalog.ts";
 import { mergeCompatSettings } from "./compat-settings.ts";
 import { cloneJson, cloneStringRecord, hasStringRecordEntries, isObjectRecord } from "./common.ts";
 import { readStableTextFileSnapshot } from "./file-snapshot.ts";
+import { t } from "./i18n.ts";
 import {
 	getModelsJsonPath,
 	hasPluginManagedProviderMarker,
@@ -281,7 +282,7 @@ export async function readState(): Promise<StateDocument> {
 		}
 		if (attempt < 2) await delay(10);
 	}
-	throw new Error("models.json/state.json 正在事务更新或持续变化；请稍后重试。");
+	throw new Error(t("models.json/state.json 正在事务更新或持续变化；请稍后重试。"));
 }
 export function getStatePath(): string {
 	return getMetadataStatePath();

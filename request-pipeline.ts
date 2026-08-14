@@ -6,6 +6,7 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { injectClaudeCodeMetadata } from "./claude-code-compat.ts";
 import { formatUnknownError } from "./common.ts";
+import { t, type MessageKey } from "./i18n.ts";
 import { normalizeManagedOpenAIResponsesPayload } from "./openai-responses-payload.ts";
 import { injectOpenAIServiceTier } from "./openai-service-tier.ts";
 import { readCachedState } from "./state-cache.ts";
@@ -15,7 +16,7 @@ type StateLoader = () => Promise<StateDocument>;
 
 type RequestTransform = {
 	id: string;
-	warning: string;
+	warning: MessageKey;
 	run(payload: unknown, ctx: ExtensionContext, loadState: StateLoader): Promise<unknown | undefined> | unknown | undefined;
 };
 
@@ -77,7 +78,7 @@ export function createRequestPipeline(): RequestPipeline {
 				} catch (error) {
 					if (!notifiedTransformErrors.has(transform.id) && ctx.hasUI) {
 						notifiedTransformErrors.add(transform.id);
-						ctx.ui.notify(`[pi-model-manager] ${transform.warning}：${formatUnknownError(error)}`, "warning");
+						ctx.ui.notify(`[pi-model-manager] ${t(transform.warning)}: ${formatUnknownError(error)}`, "warning");
 					}
 				}
 			}

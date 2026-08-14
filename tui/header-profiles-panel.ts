@@ -5,6 +5,7 @@
 
 import type { ExtensionAPI, ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
 import { formatUnknownError, parseStringRecordJson } from "../common.ts";
+import { t } from "../i18n.ts";
 import { deleteRequestHeaderProfileConfiguration, saveRequestHeaderProfileConfiguration } from "../header-profile-mutations.ts";
 import { CLAUDE_CODE_CLIENT_HEADERS, CODEX_CLI_CLIENT_HEADERS } from "../presets/builtin-client-headers.ts";
 import {
@@ -39,26 +40,28 @@ interface HeaderTemplate {
 	headers: Record<string, string>;
 }
 
-const HEADER_TEMPLATES: HeaderTemplate[] = [
-	{
-		id: "codex-cli",
-		label: "Codex",
-		description: "OpenAI 兼容端点使用的终端 Codex TUI 请求头。",
-		headers: CODEX_CLI_CLIENT_HEADERS,
-	},
-	{
-		id: "claude-code",
-		label: "ClaudeCode",
-		description: "Anthropic 兼容端点常用的 ClaudeCode 请求头。",
-		headers: CLAUDE_CODE_CLIENT_HEADERS,
-	},
-	{
-		id: "empty",
-		label: "清空",
-		description: "清空当前请求头，重新手动填写。",
-		headers: {},
-	},
-];
+function getHeaderTemplates(): HeaderTemplate[] {
+	return [
+		{
+			id: "codex-cli",
+			label: "Codex",
+			description: t("OpenAI 兼容端点使用的终端 Codex TUI 请求头。"),
+			headers: CODEX_CLI_CLIENT_HEADERS,
+		},
+		{
+			id: "claude-code",
+			label: "ClaudeCode",
+			description: t("Anthropic 兼容端点常用的 ClaudeCode 请求头。"),
+			headers: CLAUDE_CODE_CLIENT_HEADERS,
+		},
+		{
+			id: "empty",
+			label: t("清空"),
+			description: t("清空当前请求头，重新手动填写。"),
+			headers: {},
+		},
+	];
+}
 
 function buildProfileRows(document: StateDocument, profileIds: string[]): ProfileRow[] {
 	return profileIds.map((profileId) => {
@@ -74,8 +77,8 @@ function formatCapturedAt(capturedAt: string): string {
 }
 
 function formatCaptureLine(label: string, capture: StoredClientHeaderCapture | undefined): string {
-	if (!capture) return `  ${padLabel(label, 12)} 未抓包`;
-	return `  ${padLabel(label, 12)} 已抓包 ${formatCapturedAt(capture.capturedAt)} · ${Object.keys(capture.headers).length} headers`;
+	if (!capture) return `  ${padLabel(label, 12)} ${t("未抓包")}`;
+	return `  ${padLabel(label, 12)} ${t("已抓包 {time} · {count} headers", { time: formatCapturedAt(capture.capturedAt), count: Object.keys(capture.headers).length })}`;
 }
 
 interface ProfileTableCells {
@@ -122,10 +125,10 @@ function formatProfileRow(
 
 function formatProfileTableHeader(menuWidth: number): string {
 	return `  ${formatProfileTableRow({
-		profileId: "自定义 ID",
+		profileId: t("自定义 ID"),
 		headers: "Headers",
 		used: "Used",
-		name: "名称",
+		name: t("名称"),
 	}, Math.max(0, menuWidth - 2))}`;
 }
 
@@ -148,64 +151,65 @@ function formatProfileDetailLines(
 
 function buildEditorRows(draft: RequestHeaderProfileDraft): FieldRow[] {
 	return [
-		{ id: "profileId", label: "请求头 ID", value: draft.profileId || "<未填写>" },
-		{ id: "profileName", label: "请求头名称", value: draft.profileName || "<未填写>" },
-		{ id: "template", label: "快速模板", value: "选择后填充" },
-		{ id: "headers", label: "请求头 JSON", value: Object.keys(draft.headers).length > 0 ? `${Object.keys(draft.headers).length}项` : "未配置" },
+		{ id: "profileId", label: t("请求头 ID"), value: draft.profileId || t("<未填写>") },
+		{ id: "profileName", label: t("请求头名称"), value: draft.profileName || t("<未填写>") },
+		{ id: "template", label: t("快速模板"), value: t("选择后填充") },
+		{ id: "headers", label: t("请求头 JSON"), value: Object.keys(draft.headers).length > 0 ? t("{count}项", { count: Object.keys(draft.headers).length }) : t("未配置") },
 	];
 }
 
 function notifyValidationErrors(ctx: ExtensionCommandContext, errors: string[]): void {
-	ctx.ui.notify(`请求头无效：\n${errors.map((error) => `- ${error}`).join("\n")}`, "warning");
+	ctx.ui.notify(t("请求头无效：\n{errors}", { errors: errors.map((error) => `- ${error}`).join("\n") }), "warning");
 }
 
 function formatHeadersEditorText(headers: Record<string, string>): string {
 	if (Object.keys(headers).length > 0) return JSON.stringify(headers, null, 2);
 	return `{
-  // 可先返回上一级选择“快速模板”，也可在这里填写：
+  // ${t("可先返回上一级选择“快速模板”，也可在这里填写：")}
   // "user-agent": "custom-client/1.0"
 }
 `;
 }
 
 async function editHeaders(ctx: ExtensionCommandContext, draft: RequestHeaderProfileDraft): Promise<void> {
-	ctx.ui.notify("结构：JSON 对象；key 是客户端 header 名，value 是字符串。复杂示例请用“快速模板”。", "info");
+	ctx.ui.notify(t("结构：JSON 对象；key 是客户端 header 名，value 是字符串。复杂示例请用“快速模板”。"), "info");
 	while (true) {
-		const answer = await ctx.ui.editor("请求头 JSON", formatHeadersEditorText(draft.headers));
+		const answer = await ctx.ui.editor(t("请求头 JSON"), formatHeadersEditorText(draft.headers));
 		if (answer === undefined) return;
 		try {
-			draft.headers = parseStringRecordJson(answer, "请求头");
+			draft.headers = parseStringRecordJson(answer, t("请求头"));
 			return;
 		} catch (error) {
-			ctx.ui.notify(`请求头 JSON 无效：${formatUnknownError(error)}`, "warning");
+			ctx.ui.notify(t("请求头 JSON 无效：{error}", { error: formatUnknownError(error) }), "warning");
 		}
 	}
 }
 
 async function applyTemplate(ctx: ExtensionCommandContext, draft: RequestHeaderProfileDraft): Promise<void> {
-	const labels = HEADER_TEMPLATES.map((template) => `${template.label} — ${template.description}`);
-	const picked = await ctx.ui.select("选择请求头模板", labels);
+	const templates = getHeaderTemplates();
+	const labels = templates.map((template) => `${template.label} — ${template.description}`);
+	const picked = await ctx.ui.select(t("选择请求头模板"), labels);
 	if (!picked) return;
 	const index = labels.indexOf(picked);
 	if (index < 0) return;
-	const template = HEADER_TEMPLATES[index]!;
+	const template = templates[index]!;
 	draft.headers = { ...template.headers };
 	ctx.ui.notify(
 		template.id === "empty"
-			? "已清空请求头"
-			: `已填充模板：${template.label}，可继续进入“请求头 JSON”微调。`,
+			? t("已清空请求头")
+			: t("已填充模板：{template}，可继续进入“请求头 JSON”微调。", { template: template.label }),
 		"info",
 	);
 }
 
 async function editField(ctx: ExtensionCommandContext, draft: RequestHeaderProfileDraft, fieldId: string): Promise<void> {
 	if (fieldId === "profileId") {
-		const value = await ctx.ui.input("请求头 ID（接入引用这个 ID；字母/数字/._-）", draft.profileId);
+		const value = await ctx.ui.input(t("请求头 ID（接入引用这个 ID；字母/数字/._-）"), draft.profileId);
 		if (value !== undefined) draft.profileId = value.trim();
 		return;
 	}
 	if (fieldId === "profileName") {
-		const value = await ctx.ui.input("请求头名称（显示用）", draft.profileName);
+		const value = await ctx.ui.input(t("请求头名称（显示用）"), draft.profileName);
 		if (value !== undefined) draft.profileName = value.trim();
 		return;
 	}
@@ -236,13 +240,13 @@ async function editProfile(
 			cursor,
 			{
 				summaryLines: [
-					"认证类敏感 header 会被拒绝；API key 请放在接入配置中",
+					t("认证类敏感 header 会被拒绝；API key 请放在接入配置中"),
 				],
 				hints: [
-					{ key: "↑↓", label: "选择" },
-					{ key: "Enter", label: "编辑" },
-					{ key: "Ctrl+S", label: "保存并同步" },
-					{ key: "Esc", label: "返回" },
+					{ key: "↑↓", label: t("选择") },
+					{ key: "Enter", label: t("编辑") },
+					{ key: "Ctrl+S", label: t("保存并同步") },
+					{ key: "Esc", label: t("返回") },
 				],
 			},
 		);
@@ -268,7 +272,7 @@ async function saveProfile(
 		await saveRequestHeaderProfileConfiguration(pi, ctx, state, draft, oldProfileId);
 		return true;
 	} catch (error) {
-		ctx.ui.notify(`保存失败：${formatUnknownError(error)}`, "error");
+		ctx.ui.notify(t("保存失败：{error}", { error: formatUnknownError(error) }), "error");
 		return false;
 	}
 }
@@ -277,20 +281,23 @@ async function deleteProfile(pi: ExtensionAPI, ctx: ExtensionCommandContext, pro
 	const state = await readState();
 	const profile = state.requestHeaderProfiles[profileId];
 	if (!profile) {
-		ctx.ui.notify(`请求头不存在：${profileId}`, "warning");
+		ctx.ui.notify(t("请求头不存在：{profileId}", { profileId }), "warning");
 		return true;
 	}
 	const affected = countModelsUsingRequestHeaderProfile(state, profileId);
 	const ok = await ctx.ui.confirm(
-		`删除请求头 ${profileId}`,
-		`将删除 ${profile.name}。${affected > 0 ? `\n${affected} 个模型会自动改回“自动推荐”。` : ""}`,
+		t("删除请求头 {profileId}", { profileId }),
+		t("将删除 {name}。{affected}", {
+			name: profile.name,
+			affected: affected > 0 ? t("\n{count} 个模型会自动改回“自动推荐”。", { count: affected }) : "",
+		}),
 	);
 	if (!ok) return false;
 	try {
 		await deleteRequestHeaderProfileConfiguration(pi, ctx, state, profileId);
 		return true;
 	} catch (error) {
-		ctx.ui.notify(`删除失败：${formatUnknownError(error)}`, "error");
+		ctx.ui.notify(t("删除失败：{error}", { error: formatUnknownError(error) }), "error");
 		return false;
 	}
 }
@@ -299,10 +306,10 @@ async function editStoredProfile(pi: ExtensionAPI, ctx: ExtensionCommandContext,
 	const state = await readState();
 	const profile = state.requestHeaderProfiles[profileId];
 	if (!profile) {
-		ctx.ui.notify(`请求头不存在：${profileId}`, "warning");
+		ctx.ui.notify(t("请求头不存在：{profileId}", { profileId }), "warning");
 		return true;
 	}
-	const outcome = await editProfile(ctx, createRequestHeaderProfileDraftFromStored(profileId, profile), `编辑请求头 ${profileId}`);
+	const outcome = await editProfile(ctx, createRequestHeaderProfileDraftFromStored(profileId, profile), t("编辑请求头 {profileId}", { profileId }));
 	if (outcome.action !== "save") return false;
 	return saveProfile(pi, ctx, outcome.draft, profileId);
 }
@@ -317,7 +324,7 @@ export async function runHeaderProfilesPanel(pi: ExtensionAPI, ctx: ExtensionCom
 		const rows = buildProfileRows(state, profileIds);
 		const action = await showPersistentShortcutMenu<HeaderProfileShortcut>(
 			ctx,
-			"/model-manager / 请求头",
+			t("/model-manager / 请求头"),
 			"",
 			rows.map((row, index) => ({ id: `${index}`, label: row.label, searchText: row.searchText })),
 			cursor,
@@ -348,25 +355,25 @@ export async function runHeaderProfilesPanel(pi: ExtensionAPI, ctx: ExtensionCom
 						: [];
 				},
 				hints: [
-					{ key: "↑↓", label: "选择" },
-					{ key: "Enter", label: "编辑请求头" },
-					{ key: "N", label: "新建自定义" },
-					{ key: "D", label: "删除" },
-					{ key: "Esc", label: "返回" },
+					{ key: "↑↓", label: t("选择") },
+					{ key: "Enter", label: t("编辑请求头") },
+					{ key: "N", label: t("新建自定义") },
+					{ key: "D", label: t("删除") },
+					{ key: "Esc", label: t("返回") },
 				],
-				emptyLabel: "暂无自定义请求头；按 n 新建",
+				emptyLabel: t("暂无自定义请求头；按 n 新建"),
 			},
 		);
 		if (action.type === "cancel") return;
 		if (action.type === "shortcut") {
 			if (action.shortcut === "new-profile") {
-				const outcome = await editProfile(ctx, createRequestHeaderProfileDraft(), "新建请求头");
+				const outcome = await editProfile(ctx, createRequestHeaderProfileDraft(), t("新建请求头"));
 				if (outcome.action === "save") await saveProfile(pi, ctx, outcome.draft, undefined);
 				continue;
 			}
 			const selectedProfileId = rows[cursor.index]?.profileId;
 			if (!selectedProfileId) {
-				ctx.ui.notify("没有可删除的请求头。", "info");
+				ctx.ui.notify(t("没有可删除的请求头。"), "info");
 				continue;
 			}
 			await deleteProfile(pi, ctx, selectedProfileId);

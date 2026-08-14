@@ -8,6 +8,7 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { join } from "node:path";
 import { cloneJson, isObjectRecord, stringifyJson, stripJsonNoise } from "./common.ts";
 import { readStableTextFileSnapshot, type FileSignature } from "./file-snapshot.ts";
+import { t } from "./i18n.ts";
 import type {
 	ApiKind,
 	BuiltInClientHeaderProfileId,
@@ -74,40 +75,40 @@ export function createEmptyMetadata(): MetadataDocument {
 	return { version: 4, managedProviderIds: [], providers: {}, models: {}, requestHeaderProfiles: {}, clientHeaderCaptures: {} };
 }
 function fail(path: string, message: string): never {
-	throw new Error(`state.json ${path}: ${message}`);
+	throw new Error(t("state.json {path}: {message}", { path, message }));
 }
 
 function readRequiredString(record: Record<string, unknown>, key: string, path: string): string {
 	const value = record[key];
-	if (typeof value !== "string" || !value.trim()) fail(`${path}.${key}`, "必须是非空字符串");
+	if (typeof value !== "string" || !value.trim()) fail(`${path}.${key}`, t("必须是非空字符串"));
 	return value;
 }
 
 function readOptionalString(record: Record<string, unknown>, key: string, path: string): string | undefined {
 	const value = record[key];
 	if (value === undefined) return undefined;
-	if (typeof value !== "string") fail(`${path}.${key}`, "必须是字符串");
+	if (typeof value !== "string") fail(`${path}.${key}`, t("必须是字符串"));
 	return value;
 }
 
 function readOptionalBoolean(record: Record<string, unknown>, key: string, path: string): boolean | undefined {
 	const value = record[key];
 	if (value === undefined) return undefined;
-	if (typeof value !== "boolean") fail(`${path}.${key}`, "必须是 boolean");
+	if (typeof value !== "boolean") fail(`${path}.${key}`, t("必须是 boolean"));
 	return value;
 }
 
 function readPositiveInteger(record: Record<string, unknown>, key: string, path: string): number {
 	const value = record[key];
-	if (!Number.isInteger(value) || (value as number) <= 0) fail(`${path}.${key}`, "必须是正整数");
+	if (!Number.isInteger(value) || (value as number) <= 0) fail(`${path}.${key}`, t("必须是正整数"));
 	return value as number;
 }
 
 function readStringRecord(value: unknown, path: string): Record<string, string> {
-	if (!isObjectRecord(value)) fail(path, "必须是对象");
+	if (!isObjectRecord(value)) fail(path, t("必须是对象"));
 	const record: Record<string, string> = {};
 	for (const [key, entry] of Object.entries(value)) {
-		if (typeof entry !== "string") fail(`${path}.${key}`, "值必须是字符串");
+		if (typeof entry !== "string") fail(`${path}.${key}`, t("值必须是字符串"));
 		record[key] = entry;
 	}
 	return record;
@@ -120,9 +121,9 @@ function readOptionalStringRecord(record: Record<string, unknown>, key: string, 
 }
 
 function readProviderIdList(value: unknown, path: string): string[] {
-	if (!Array.isArray(value)) fail(path, "必须是字符串数组");
+	if (!Array.isArray(value)) fail(path, t("必须是字符串数组"));
 	return [...new Set(value.map((item, index) => {
-		if (typeof item !== "string" || !item.trim()) fail(`${path}[${index}]`, "必须是非空字符串");
+		if (typeof item !== "string" || !item.trim()) fail(`${path}[${index}]`, t("必须是非空字符串"));
 		return item;
 	}))];
 }
@@ -130,35 +131,35 @@ function readProviderIdList(value: unknown, path: string): string[] {
 function readObjectRecord(record: Record<string, unknown>, key: string, path: string): Record<string, unknown> | undefined {
 	const value = record[key];
 	if (value === undefined) return undefined;
-	if (!isObjectRecord(value)) fail(`${path}.${key}`, "必须是对象");
+	if (!isObjectRecord(value)) fail(`${path}.${key}`, t("必须是对象"));
 	return cloneJson(value);
 }
 
 function readApiKind(record: Record<string, unknown>, key: string, path: string): ApiKind {
 	const value = readRequiredString(record, key, path);
-	if (!API_KINDS.has(value as ApiKind)) fail(`${path}.${key}`, `未知 API 协议：${value}`);
+	if (!API_KINDS.has(value as ApiKind)) fail(`${path}.${key}`, t("未知 API 协议：{value}", { value }));
 	return value as ApiKind;
 }
 
 function readOptionalClientHeaderProfile(record: Record<string, unknown>, key: string, path: string): ClientHeaderProfileId | undefined {
 	const value = readOptionalString(record, key, path);
 	if (value === undefined) return undefined;
-	if (!CLIENT_HEADER_PROFILE_IDS.has(value as ClientHeaderProfileId)) fail(`${path}.${key}`, `未知请求头：${value}`);
+	if (!CLIENT_HEADER_PROFILE_IDS.has(value as ClientHeaderProfileId)) fail(`${path}.${key}`, t("未知请求头：{value}", { value }));
 	return value as ClientHeaderProfileId;
 }
 
 function readOptionalOpenAIServiceTier(record: Record<string, unknown>, key: string, path: string): OpenAIServiceTier | undefined {
 	const value = readOptionalString(record, key, path);
 	if (value === undefined) return undefined;
-	if (!OPENAI_SERVICE_TIERS.has(value as OpenAIServiceTier)) fail(`${path}.${key}`, `未知 OpenAI service tier：${value}`);
+	if (!OPENAI_SERVICE_TIERS.has(value as OpenAIServiceTier)) fail(`${path}.${key}`, t("未知 OpenAI service tier：{value}", { value }));
 	return value as OpenAIServiceTier;
 }
 
 function readInputKinds(record: Record<string, unknown>, key: string, path: string): ModelInputKind[] {
 	const value = record[key];
-	if (!Array.isArray(value) || value.length === 0) fail(`${path}.${key}`, "必须是非空数组");
+	if (!Array.isArray(value) || value.length === 0) fail(`${path}.${key}`, t("必须是非空数组"));
 	const kinds = value.map((item, index) => {
-		if (typeof item !== "string" || !INPUT_KINDS.has(item as ModelInputKind)) fail(`${path}.${key}[${index}]`, "必须是 text 或 image");
+		if (typeof item !== "string" || !INPUT_KINDS.has(item as ModelInputKind)) fail(`${path}.${key}[${index}]`, t("必须是 text 或 image"));
 		return item as ModelInputKind;
 	});
 	return [...new Set(kinds)];
@@ -166,11 +167,11 @@ function readInputKinds(record: Record<string, unknown>, key: string, path: stri
 
 function readCost(record: Record<string, unknown>, key: string, path: string): TokenCost {
 	const value = record[key];
-	if (!isObjectRecord(value)) fail(`${path}.${key}`, "必须是对象");
+	if (!isObjectRecord(value)) fail(`${path}.${key}`, t("必须是对象"));
 	const cost: Partial<TokenCost> = {};
 	for (const field of ["input", "output", "cacheRead", "cacheWrite"] as const) {
 		const amount = value[field];
-		if (typeof amount !== "number" || !Number.isFinite(amount) || amount < 0) fail(`${path}.${key}.${field}`, "必须是非负数字");
+		if (typeof amount !== "number" || !Number.isFinite(amount) || amount < 0) fail(`${path}.${key}.${field}`, t("必须是非负数字"));
 		cost[field] = amount;
 	}
 	return cost as TokenCost;
@@ -179,20 +180,20 @@ function readCost(record: Record<string, unknown>, key: string, path: string): T
 function readThinkingLevelMap(record: Record<string, unknown>, key: string, path: string): ThinkingLevelMap | undefined {
 	const value = record[key];
 	if (value === undefined) return undefined;
-	if (!isObjectRecord(value)) fail(`${path}.${key}`, "必须是对象");
+	if (!isObjectRecord(value)) fail(`${path}.${key}`, t("必须是对象"));
 	const map: ThinkingLevelMap = {};
 	for (const [level, mapped] of Object.entries(value)) {
-		if (!THINKING_LEVELS.has(level)) fail(`${path}.${key}.${level}`, "未知 thinking level");
-		if (typeof mapped !== "string" && mapped !== null) fail(`${path}.${key}.${level}`, "必须是字符串或 null");
+		if (!THINKING_LEVELS.has(level)) fail(`${path}.${key}.${level}`, t("未知 thinking level"));
+		if (typeof mapped !== "string" && mapped !== null) fail(`${path}.${key}.${level}`, t("必须是字符串或 null"));
 		map[level as keyof ThinkingLevelMap] = mapped;
 	}
 	return map;
 }
 
 function readStoredModel(raw: unknown, path: string): StoredModel {
-	if (!isObjectRecord(raw)) fail(path, "必须是对象");
+	if (!isObjectRecord(raw)) fail(path, t("必须是对象"));
 	const reasoning = raw.reasoning;
-	if (typeof reasoning !== "boolean") fail(`${path}.reasoning`, "必须是 boolean");
+	if (typeof reasoning !== "boolean") fail(`${path}.reasoning`, t("必须是 boolean"));
 
 	const model: StoredModel = {
 		id: readRequiredString(raw, "id", path),
@@ -221,7 +222,7 @@ function readStoredModel(raw: unknown, path: string): StoredModel {
 }
 
 function readProviderMetadata(raw: unknown, path: string): ProviderMetadata {
-	if (!isObjectRecord(raw)) fail(path, "必须是对象");
+	if (!isObjectRecord(raw)) fail(path, t("必须是对象"));
 	const metadata: ProviderMetadata = {};
 	const clientHeaderProfile = readOptionalClientHeaderProfile(raw, "clientHeaderProfile", path);
 	if (clientHeaderProfile) metadata.clientHeaderProfile = clientHeaderProfile;
@@ -237,7 +238,7 @@ function readProviderMetadata(raw: unknown, path: string): ProviderMetadata {
 }
 
 function readModelMetadata(raw: unknown, path: string): ModelMetadata {
-	if (!isObjectRecord(raw)) fail(path, "必须是对象");
+	if (!isObjectRecord(raw)) fail(path, t("必须是对象"));
 	const metadata: ModelMetadata = {};
 	const openAIServiceTier = readOptionalOpenAIServiceTier(raw, "openAIServiceTier", path);
 	if (openAIServiceTier) metadata.openAIServiceTier = openAIServiceTier;
@@ -270,9 +271,9 @@ function inferProviderHeaderProfile(models: StoredModel[]): HeaderProfileSelecti
 }
 
 function readStoredProvider(raw: unknown, path: string, managed: boolean): StoredProvider {
-	if (!isObjectRecord(raw)) fail(path, "必须是对象");
+	if (!isObjectRecord(raw)) fail(path, t("必须是对象"));
 	const models = raw.models;
-	if (!Array.isArray(models)) fail(`${path}.models`, "必须是数组");
+	if (!Array.isArray(models)) fail(`${path}.models`, t("必须是数组"));
 	const storedModels = models.map((model, index) => readStoredModel(model, `${path}.models[${index}]`));
 	const inferredProfile = inferProviderHeaderProfile(storedModels);
 	const clientHeaderProfile = managed
@@ -304,7 +305,7 @@ function readStoredProvider(raw: unknown, path: string, managed: boolean): Store
 }
 
 function readRequestHeaderProfile(raw: unknown, path: string): StoredRequestHeaderProfile {
-	if (!isObjectRecord(raw)) fail(path, "必须是对象");
+	if (!isObjectRecord(raw)) fail(path, t("必须是对象"));
 	return {
 		name: readRequiredString(raw, "name", path),
 		headers: readStringRecord(raw.headers, `${path}.headers`),
@@ -312,7 +313,7 @@ function readRequestHeaderProfile(raw: unknown, path: string): StoredRequestHead
 }
 
 function readClientHeaderCapture(raw: unknown, path: string): StoredClientHeaderCapture {
-	if (!isObjectRecord(raw)) fail(path, "必须是对象");
+	if (!isObjectRecord(raw)) fail(path, t("必须是对象"));
 	return {
 		capturedAt: readRequiredString(raw, "capturedAt", path),
 		headers: readStringRecord(raw.headers, `${path}.headers`),
@@ -323,10 +324,10 @@ function readCommonMetadataFields(parsed: Record<string, unknown>, base: Metadat
 	const requestHeaderProfiles: MetadataDocument["requestHeaderProfiles"] = {};
 	const rawProfiles = parsed.requestHeaderProfiles;
 	if (rawProfiles !== undefined) {
-		if (!isObjectRecord(rawProfiles)) fail(".requestHeaderProfiles", "必须是对象");
+		if (!isObjectRecord(rawProfiles)) fail(".requestHeaderProfiles", t("必须是对象"));
 		for (const [profileId, profile] of Object.entries(rawProfiles)) {
 			if (RESERVED_REQUEST_HEADER_PROFILE_IDS.has(profileId)) {
-				fail(`.requestHeaderProfiles.${profileId}`, "不能使用插件内置请求头保留名");
+				fail(`.requestHeaderProfiles.${profileId}`, t("不能使用插件内置请求头保留名"));
 			}
 			requestHeaderProfiles[profileId] = readRequestHeaderProfile(profile, `.requestHeaderProfiles.${profileId}`);
 		}
@@ -335,10 +336,10 @@ function readCommonMetadataFields(parsed: Record<string, unknown>, base: Metadat
 	const clientHeaderCaptures: MetadataDocument["clientHeaderCaptures"] = {};
 	const rawCaptures = parsed.clientHeaderCaptures;
 	if (rawCaptures !== undefined) {
-		if (!isObjectRecord(rawCaptures)) fail(".clientHeaderCaptures", "必须是对象");
+		if (!isObjectRecord(rawCaptures)) fail(".clientHeaderCaptures", t("必须是对象"));
 		for (const [profileId, capture] of Object.entries(rawCaptures)) {
 			if (!BUILT_IN_CLIENT_HEADER_PROFILE_IDS.has(profileId as BuiltInClientHeaderProfileId)) {
-				fail(`.clientHeaderCaptures.${profileId}`, "只能保存 ClaudeCode/Codex 内置 profile 的抓包数据");
+				fail(`.clientHeaderCaptures.${profileId}`, t("只能保存 ClaudeCode/Codex 内置 profile 的抓包数据"));
 			}
 			clientHeaderCaptures[profileId as BuiltInClientHeaderProfileId] = readClientHeaderCapture(
 				capture,
@@ -400,7 +401,7 @@ function parseLegacyState(parsed: Record<string, unknown>): ParsedMetadataStateF
 	const providers: StateDocument["providers"] = {};
 	const rawProviders = parsed.providers;
 	if (rawProviders !== undefined) {
-		if (!isObjectRecord(rawProviders)) fail(".providers", "必须是对象");
+		if (!isObjectRecord(rawProviders)) fail(".providers", t("必须是对象"));
 		for (const [providerId, provider] of Object.entries(rawProviders)) {
 			providers[providerId] = readStoredProvider(provider, `.providers.${providerId}`, true);
 		}
@@ -418,14 +419,14 @@ function parseMetadataState(parsed: Record<string, unknown>): ParsedMetadataStat
 	const metadata = readCommonMetadataFields(parsed, createEmptyMetadata());
 	const rawProviders = parsed.providers;
 	if (rawProviders !== undefined) {
-		if (!isObjectRecord(rawProviders)) fail(".providers", "必须是对象");
+		if (!isObjectRecord(rawProviders)) fail(".providers", t("必须是对象"));
 		for (const [providerId, provider] of Object.entries(rawProviders)) {
 			metadata.providers[providerId] = readProviderMetadata(provider, `.providers.${providerId}`);
 		}
 	}
 	const rawModels = parsed.models;
 	if (rawModels !== undefined) {
-		if (!isObjectRecord(rawModels)) fail(".models", "必须是对象");
+		if (!isObjectRecord(rawModels)) fail(".models", t("必须是对象"));
 		for (const [fullModelId, model] of Object.entries(rawModels)) {
 			metadata.models[fullModelId] = readModelMetadata(model, `.models.${fullModelId}`);
 		}
@@ -448,10 +449,10 @@ function parseMetadataState(parsed: Record<string, unknown>): ParsedMetadataStat
 
 function parseStateFile(source: string): ParsedMetadataStateFile {
 	const parsed = JSON.parse(stripJsonNoise(source));
-	if (!isObjectRecord(parsed)) fail("", "根节点必须是对象");
+	if (!isObjectRecord(parsed)) fail("", t("根节点必须是对象"));
 	if (parsed.version === 4 || parsed.version === 3 || parsed.version === 2) return parseMetadataState(parsed);
 	if (parsed.version === undefined || parsed.version === 1) return parseLegacyState(parsed);
-	fail(".version", `不支持的版本：${String(parsed.version)}`);
+	fail(".version", t("不支持的版本：{version}", { version: String(parsed.version) }));
 }
 
 export async function readMetadataStateSnapshot(): Promise<MetadataStateSnapshot> {

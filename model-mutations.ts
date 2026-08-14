@@ -6,6 +6,7 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { formatUnknownError } from "./common.ts";
 import { isBuiltinProviderId } from "./builtin-model-catalog.ts";
+import { t } from "./i18n.ts";
 import {
 	persistManagedConfiguration,
 	persistModelConfiguration,
@@ -31,14 +32,14 @@ type ModelDraft = ReturnType<typeof createModelDraftForStoredProvider>;
 
 async function assertProviderIsEditable(providerId: string): Promise<void> {
 	if (await isBuiltinProviderId(providerId)) {
-		throw new Error(`内置接入 ${providerId} 不允许通过 /model-manager 编辑或删除。`);
+		throw new Error(t("内置接入 {providerId} 不允许通过 /model-manager 编辑或删除。", { providerId }));
 	}
 }
 
 function formatEnableNote(mode: "all-enabled" | "updated" | "unchanged", scope?: "global" | "project"): string {
-	if (mode === "all-enabled") return "当前未限制 enabledModels，重启后默认可选";
-	if (mode === "updated") return `已写入${scope === "project" ? "项目" : "全局"} enabledModels`;
-	return "已在 enabledModels 中";
+	if (mode === "all-enabled") return t("当前未限制 enabledModels，重启后默认可选");
+	if (mode === "updated") return scope === "project" ? t("已写入项目 enabledModels") : t("已写入全局 enabledModels");
+	return t("已在 enabledModels 中");
 }
 
 async function notifyModelAvailability(
@@ -46,7 +47,7 @@ async function notifyModelAvailability(
 	providerId: string,
 	modelId: string,
 	replacedFullId?: string,
-	messagePrefix = "已保存并启用模型",
+	messagePrefix = t("已保存并启用模型"),
 ): Promise<void> {
 	const fullId = getModelFullId(providerId, modelId);
 	try {
@@ -54,12 +55,12 @@ async function notifyModelAvailability(
 		const verification = await verifyNativeModelAvailable(ctx, providerId, modelId);
 		const enableNote = formatEnableNote(enableOutcome.mode, enableOutcome.scope);
 		if (verification.ok) {
-			ctx.ui.notify(`${messagePrefix} ${fullId}（${enableNote}）`, "info");
+			ctx.ui.notify(t("{messagePrefix} {fullId}（{availability}）", { messagePrefix, fullId, availability: enableNote }), "info");
 		} else {
-			ctx.ui.notify(`已保存模型 ${fullId}，但启用校验有警告：\n- ${verification.warnings.join("\n- ")}`, "warning");
+			ctx.ui.notify(t("已保存模型 {fullId}，但启用校验有警告：\n- {warnings}", { fullId, warnings: verification.warnings.join("\n- ") }), "warning");
 		}
 	} catch (error) {
-		ctx.ui.notify(`已保存模型 ${fullId}，但启用同步/校验失败：${formatUnknownError(error)}`, "warning");
+		ctx.ui.notify(t("已保存模型 {fullId}，但启用同步/校验失败：{error}", { fullId, error: formatUnknownError(error) }), "warning");
 	}
 }
 
@@ -72,7 +73,7 @@ async function reconcilePersistedProviderRuntime(
 	try {
 		await reconcileProvider(pi, providerId, provider, document.requestHeaderProfiles, document.clientHeaderCaptures);
 	} catch (error) {
-		throw new Error(`models.json/state.json 已保存，但当前会话接入刷新失败：${formatUnknownError(error)}。可执行 /reload 重试。`);
+		throw new Error(t("models.json/state.json 已保存，但当前会话接入刷新失败：{error}。可执行 /reload 重试。", { error: formatUnknownError(error) }));
 	}
 }
 
@@ -102,7 +103,7 @@ export async function saveProviderConfiguration(
 	await reconcilePersistedProviderRuntime(pi, draft.providerId, stored, nextState);
 	if (oldProviderId && oldProviderId !== draft.providerId) unregisterManagedProvider(pi, oldProviderId);
 
-	ctx.ui.notify(`已保存接入 ${draft.providerId}`, "info");
+	ctx.ui.notify(t("已保存接入 {providerId}", { providerId: draft.providerId }), "info");
 
 	if (oldProviderId && oldProviderId !== draft.providerId) {
 		try {
@@ -112,13 +113,15 @@ export async function saveProviderConfiguration(
 				draft.providerId,
 			);
 			if (outcome.mode === "updated") {
-				ctx.ui.notify(`已同步${outcome.scope === "project" ? "项目" : "全局"} enabledModels 中的接入重命名`, "info");
+				ctx.ui.notify(outcome.scope === "project"
+					? t("已同步项目 enabledModels 中的接入重命名")
+					: t("已同步全局 enabledModels 中的接入重命名"), "info");
 			}
 		} catch (error) {
-			ctx.ui.notify(`接入已保存，但 enabledModels 同步失败：${formatUnknownError(error)}`, "warning");
+			ctx.ui.notify(t("接入已保存，但 enabledModels 同步失败：{error}", { error: formatUnknownError(error) }), "warning");
 		}
 		await withModelRescue(ctx, pi, { providerId: oldProviderId }, {
-			reason: `接入 ${oldProviderId} 已重命名为 ${draft.providerId}`,
+			reason: t("接入 {oldProviderId} 已重命名为 {providerId}", { oldProviderId, providerId: draft.providerId }),
 			preferred: renamedCurrentModelId
 				? { providerId: draft.providerId, modelId: renamedCurrentModelId }
 				: undefined,
@@ -156,7 +159,7 @@ export async function saveModelConfiguration(
 			pi,
 			{ providerId: draft.providerId, modelId: replacedModelId },
 			{
-				reason: `模型 ${oldFullId} 已重命名为 ${newFullId}`,
+				reason: t("模型 {oldFullId} 已重命名为 {newFullId}", { oldFullId, newFullId }),
 				preferred: { providerId: draft.providerId, modelId: draft.modelId.trim() },
 			},
 		);
@@ -179,7 +182,7 @@ export async function saveNewProviderWithModelConfiguration(
 	const nextState = await persistManagedConfiguration(ctx, prepare);
 	const stored = nextState.providers[providerDraft.providerId]!;
 	await reconcilePersistedProviderRuntime(pi, providerDraft.providerId, stored, nextState);
-	await notifyModelAvailability(ctx, providerDraft.providerId, modelDraft.modelId.trim(), undefined, "已创建并启用模型");
+	await notifyModelAvailability(ctx, providerDraft.providerId, modelDraft.modelId.trim(), undefined, t("已创建并启用模型"));
 }
 
 export async function deleteProviderConfiguration(
@@ -197,11 +200,11 @@ export async function deleteProviderConfiguration(
 	try {
 		await removeProviderFromNextPiStart(ctx.cwd, providerId);
 	} catch (error) {
-		ctx.ui.notify(`接入已删除，但 enabledModels 清理失败：${formatUnknownError(error)}`, "warning");
+		ctx.ui.notify(t("接入已删除，但 enabledModels 清理失败：{error}", { error: formatUnknownError(error) }), "warning");
 	}
 	unregisterManagedProvider(pi, providerId);
-	ctx.ui.notify(`已删除接入 ${providerId}`, "info");
-	await withModelRescue(ctx, pi, { providerId }, { reason: `接入 ${providerId} 已删除` });
+	ctx.ui.notify(t("已删除接入 {providerId}", { providerId }), "info");
+	await withModelRescue(ctx, pi, { providerId }, { reason: t("接入 {providerId} 已删除", { providerId }) });
 }
 
 export async function deleteModelConfiguration(
@@ -227,10 +230,10 @@ export async function deleteModelConfiguration(
 	try {
 		await removeModelFromNextPiStart(ctx.cwd, fullId);
 	} catch (error) {
-		ctx.ui.notify(`模型已删除，但 enabledModels 清理失败：${formatUnknownError(error)}`, "warning");
+		ctx.ui.notify(t("模型已删除，但 enabledModels 清理失败：{error}", { error: formatUnknownError(error) }), "warning");
 	}
 	if (stored) await reconcilePersistedProviderRuntime(pi, providerId, stored, nextState);
 	else unregisterManagedProvider(pi, providerId);
-	ctx.ui.notify(`已删除模型 ${fullId}`, "info");
-	await withModelRescue(ctx, pi, { providerId, modelId }, { reason: `模型 ${fullId} 已删除` });
+	ctx.ui.notify(t("已删除模型 {fullId}", { fullId }), "info");
+	await withModelRescue(ctx, pi, { providerId, modelId }, { reason: t("模型 {fullId} 已删除", { fullId }) });
 }

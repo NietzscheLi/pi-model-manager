@@ -3,6 +3,7 @@
 
 import { ModelRuntime, type ProviderConfig } from "@earendil-works/pi-coding-agent";
 import { formatUnknownError } from "../common.ts";
+import { t } from "../i18n.ts";
 import { openTemporaryLocalProxyRoute, type TemporaryLocalProxyRoute } from "../local-proxy-service.ts";
 import { getClientHeadersForProfile } from "../presets/client-headers.ts";
 import { appendUrlPath, resolveRuntimeBaseUrl } from "../runtime-base-url.ts";
@@ -64,13 +65,13 @@ function buildGoogleUrl(baseUrl: string, apiKey: string): string {
 
 function throwIfAborted(signal: AbortSignal): void {
 	if (!signal.aborted) return;
-	throw signal.reason instanceof Error ? signal.reason : new Error("模型发现已取消");
+	throw signal.reason instanceof Error ? signal.reason : new Error(t("模型发现已取消"));
 }
 
 function waitWithSignal<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
 	if (signal.aborted) return Promise.reject(signal.reason);
 	return new Promise<T>((resolve, reject) => {
-		const abort = () => reject(signal.reason instanceof Error ? signal.reason : new Error("模型发现已取消"));
+		const abort = () => reject(signal.reason instanceof Error ? signal.reason : new Error(t("模型发现已取消")));
 		signal.addEventListener("abort", abort, { once: true });
 		operation.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
 	});
@@ -120,11 +121,11 @@ async function resolveFetchAuth(
 	}), signal);
 	runtime.registerProvider(TEMP_PROVIDER_ID, providerConfig);
 	const model = runtime.getModel(TEMP_PROVIDER_ID, TEMP_MODEL_ID);
-	if (!model) throw new Error("临时模型注册失败，无法解析模型列表认证");
+	if (!model) throw new Error(t("临时模型注册失败，无法解析模型列表认证"));
 	const resolvedAuth = await waitWithSignal(runtime.getAuth(model), signal);
-	if (!resolvedAuth) throw new Error("请求认证解析失败");
+	if (!resolvedAuth) throw new Error(t("请求认证解析失败"));
 	const apiKey = resolvedAuth.auth.apiKey;
-	if (!apiKey) throw new Error("API key 未配置或解析为空，无法拉取模型列表");
+	if (!apiKey) throw new Error(t("API key 未配置或解析为空，无法拉取模型列表"));
 
 	const headers: Record<string, string> = {};
 	for (const [name, value] of Object.entries(resolvedAuth.auth.headers ?? {})) {
@@ -258,12 +259,12 @@ export async function fetchModelIds(
 ): Promise<ModelListFetchOutcome> {
 	const controller = new AbortController();
 	let timedOut = false;
-	const cancel = () => controller.abort(cancellationSignal?.reason ?? new Error("模型发现已取消"));
+	const cancel = () => controller.abort(cancellationSignal?.reason ?? new Error(t("模型发现已取消")));
 	if (cancellationSignal?.aborted) cancel();
 	else cancellationSignal?.addEventListener("abort", cancel, { once: true });
 	const timeout = setTimeout(() => {
 		timedOut = true;
-		controller.abort(new Error("模型列表请求总计超时（10 秒）"));
+		controller.abort(new Error(t("模型列表请求总计超时（10 秒）")));
 	}, MODEL_LIST_TIMEOUT_MS);
 	const redactionSecrets = [params.apiKey.trim()].filter(Boolean);
 	try {
@@ -271,7 +272,7 @@ export async function fetchModelIds(
 	} catch (error) {
 		if (cancellationSignal?.aborted) return { status: "cancelled" };
 		const message = timedOut
-			? "模型列表请求总计超时（10 秒）"
+			? t("模型列表请求总计超时（10 秒）")
 			: redactSensitiveText(formatUnknownError(error), redactionSecrets);
 		return { status: "failed", message };
 	} finally {

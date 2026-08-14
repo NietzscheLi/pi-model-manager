@@ -2,6 +2,7 @@
 
 import { createHash } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
+import { t } from "./i18n.ts";
 
 export interface FileSignature {
 	exists: boolean;
@@ -72,5 +73,5 @@ export async function readStableTextFileSnapshot(path: string): Promise<StableTe
 			return { source, signature: after, contentHash: hashTextContent(source) };
 		}
 	}
-	throw new Error(`${path} 在读取期间持续变化；请停止其它写入后重试。`);
+	throw new Error(t("{path} 在读取期间持续变化；请停止其它写入后重试。", { path }));
 }

@@ -4,6 +4,7 @@
 
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { CURSOR_MARKER, Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
+import { t } from "../i18n.ts";
 import { padLabel } from "./persistent-menu.ts";
 
 const MODEL_PAGE_SIZE = 8;
@@ -124,8 +125,8 @@ function isPlainTextInput(data: string): boolean {
 
 function formatPageText(modelCount: number, selectedIndex: number): string {
 	const pageCount = getPageCount(modelCount);
-	if (pageCount === 0) return "页码 0 / 0";
-	return `页码 ${Math.floor(selectedIndex / MODEL_PAGE_SIZE) + 1} / ${pageCount}`;
+	if (pageCount === 0) return t("页码 0 / 0");
+	return t("页码 {page} / {pages}", { page: Math.floor(selectedIndex / MODEL_PAGE_SIZE) + 1, pages: pageCount });
 }
 
 export async function pickModelIdFromList(
@@ -231,24 +232,28 @@ export async function pickModelIdFromList(
 				const border = theme.fg("borderMuted", "─".repeat(Math.max(0, width)));
 				const queryCursor = focused ? `${CURSOR_MARKER}${theme.fg("accent", "▌")}` : "";
 				const searchLine = searchText
-					? `${theme.fg("muted", "搜索: ")}${searchText}${queryCursor}`
-					: `${theme.fg("muted", "搜索: ")}${queryCursor}${theme.fg("dim", "<直接输入搜索>")}`;
+					? `${theme.fg("muted", t("搜索: "))}${searchText}${queryCursor}`
+					: `${theme.fg("muted", t("搜索: "))}${queryCursor}${theme.fg("dim", t("<直接输入搜索>"))}`;
 				const lines: string[] = [
 					border,
 					theme.fg("accent", theme.bold(title)),
 					searchLine,
-					theme.fg("dim", `匹配 ${matchedModelIds.length} / ${sortedModelIds.length} · ${formatPageText(matchedModelIds.length, selectedIndex)}`),
+					theme.fg("dim", t("匹配 {matched} / {total} · {page}", {
+						matched: matchedModelIds.length,
+						total: sortedModelIds.length,
+						page: formatPageText(matchedModelIds.length, selectedIndex),
+					})),
 					"",
 				];
 
 				if (visibleModelIds.length === 0) {
-					lines.push(theme.fg("warning", "没有匹配模型；Backspace 删除搜索词，Esc 返回后可手动输入。"));
+					lines.push(theme.fg("warning", t("没有匹配模型；Backspace 删除搜索词，Esc 返回后可手动输入。")));
 				} else {
 					for (let rowIndex = 0; rowIndex < visibleModelIds.length; rowIndex += 1) {
 						const absoluteIndex = pageStart + rowIndex;
 						const modelId = visibleModelIds[rowIndex]!;
 						const selected = absoluteIndex === selectedIndex;
-						const currentSuffix = modelId === normalizedCurrentModelId ? theme.fg("dim", "  ← 当前") : "";
+						const currentSuffix = modelId === normalizedCurrentModelId ? theme.fg("dim", t("  ← 当前")) : "";
 						const prefix = selected ? "❯ " : "  ";
 						const rowText = truncateToWidth(`${prefix}${modelId}${currentSuffix}`, width);
 						// [喵喵喵]: 与列表菜单用同一种选中表现（背景色），避免两套选择器手感不一致。
@@ -258,7 +263,7 @@ export async function pickModelIdFromList(
 
 				lines.push(
 					"",
-					theme.fg("dim", "↑↓ 选择 · ←→/PgUp/PgDn 翻页 · 输入搜索 · Backspace 删除 · Enter 确认 · Esc 取消"),
+					theme.fg("dim", t("↑↓ 选择 · ←→/PgUp/PgDn 翻页 · 输入搜索 · Backspace 删除 · Enter 确认 · Esc 取消")),
 					border,
 				);
 				return lines.map((line) => truncateToWidth(line, width));

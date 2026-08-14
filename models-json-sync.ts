@@ -18,6 +18,7 @@ import { atomicWriteText } from "./atomic-write.ts";
 import { cloneJson, formatUnknownError, isObjectRecord, stringifyJson, stripJsonNoise } from "./common.ts";
 import { withConfigurationLock } from "./configuration-lock.ts";
 import { readStableTextFileSnapshot } from "./file-snapshot.ts";
+import { t } from "./i18n.ts";
 import {
 	deleteModelInDoc,
 	deleteProviderInDoc,
@@ -169,9 +170,9 @@ export function buildModelsDocumentWithSynchronizedModel(
 	replacedModelId?: string,
 ): ModelsJsonDocument {
 	const provider = document.providers[providerId];
-	if (!provider) throw new Error(`接入不存在：${providerId}`);
+	if (!provider) throw new Error(t("接入不存在：{providerId}", { providerId }));
 	const model = provider.models.find((candidate) => candidate.id === modelId);
-	if (!model) throw new Error(`模型不存在：${providerId}/${modelId}`);
+	if (!model) throw new Error(t("模型不存在：{fullId}", { fullId: `${providerId}/${modelId}` }));
 	const sourceModel = sourceDocument.providers[providerId]?.models?.find(
 		(candidate) => candidate.id === modelId || candidate.id === replacedModelId,
 	);
@@ -281,7 +282,7 @@ async function updateLockedSettings(
 	try {
 		const snapshot = await readStableTextFileSnapshot(path);
 		const settings = snapshot.source === undefined ? {} : JSON.parse(stripJsonNoise(snapshot.source));
-		if (!isObjectRecord(settings)) throw new Error(`${path} 根节点必须是对象`);
+		if (!isObjectRecord(settings)) throw new Error(t("{path} 根节点必须是对象", { path }));
 		const current = settings.enabledModels;
 		if (!Array.isArray(current)) return { configured: false, outcome: { mode: "all-enabled" } };
 		const patterns = current.filter((item): item is string => typeof item === "string");
@@ -292,7 +293,7 @@ async function updateLockedSettings(
 		}
 		const currentSnapshot = await readStableTextFileSnapshot(path);
 		if (currentSnapshot.contentHash !== snapshot.contentHash) {
-			throw new Error(`${path} 已被未遵守 Pi 文件锁的编辑器修改；已取消 enabledModels 同步，请重试。`);
+			throw new Error(t("{path} 已被未遵守 Pi 文件锁的编辑器修改；已取消 enabledModels 同步，请重试。", { path }));
 		}
 		settings.enabledModels = next;
 		await atomicWriteText(path, stringifyJson(settings));
@@ -374,15 +375,15 @@ async function verifyRegistryModel(
 	const warnings: string[] = [];
 	const model = registry.find(providerId, modelId);
 	if (!model) {
-		warnings.push(`${label} 未找到模型 ${providerId}/${modelId}`);
+		warnings.push(t("{label} 未找到模型 {fullId}", { label, fullId: `${providerId}/${modelId}` }));
 		return warnings;
 	}
 	if (!registry.hasConfiguredAuth(model)) {
-		warnings.push(`${label} 找到模型 ${providerId}/${modelId}，但 API key 未配置或不可解析`);
+		warnings.push(t("{label} 找到模型 {fullId}，但 API key 未配置或不可解析", { label, fullId: `${providerId}/${modelId}` }));
 		return warnings;
 	}
 	const auth = await registry.getApiKeyAndHeaders(model);
-	if (!auth.ok) warnings.push(`${label} 请求认证解析失败：${auth.error}`);
+	if (!auth.ok) warnings.push(t("{label} 请求认证解析失败：{error}", { label, error: auth.error }));
 	return warnings;
 }
 
@@ -393,7 +394,7 @@ export async function verifyNativeModelAvailable(
 	modelId: string,
 ): Promise<NativeModelVerification> {
 	const warnings: string[] = [];
-	warnings.push(...await verifyRegistryModel("当前会话 registry", ctx.modelRegistry, providerId, modelId));
+	warnings.push(...await verifyRegistryModel(t("当前会话 registry"), ctx.modelRegistry, providerId, modelId));
 	try {
 		const agentDir = getAgentDir();
 		const runtime = await ModelRuntime.create({
@@ -402,9 +403,9 @@ export async function verifyNativeModelAvailable(
 			allowModelNetwork: false,
 		});
 		const registry = new ModelRegistry(runtime);
-		warnings.push(...await verifyRegistryModel("原生 models.json registry", registry, providerId, modelId));
+		warnings.push(...await verifyRegistryModel(t("原生 models.json registry"), registry, providerId, modelId));
 	} catch (error) {
-		warnings.push(`原生 models.json registry 校验失败：${formatUnknownError(error)}`);
+		warnings.push(t("原生 models.json registry 校验失败：{error}", { error: formatUnknownError(error) }));
 	}
 	return { ok: warnings.length === 0, warnings };
 }

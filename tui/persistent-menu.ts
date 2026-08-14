@@ -8,6 +8,7 @@
 
 import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
 import { CURSOR_MARKER, Key, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { t } from "../i18n.ts";
 
 export interface MenuRow {
 	id: string;
@@ -238,23 +239,23 @@ function createPersistentMenu<TAction extends MenuAction | FormMenuAction | Shor
 		// 输入态显示带光标的搜索行；Tab 退出后仍需告知用户过滤仍生效。
 		const renderQueryLine = (width: number): string => {
 			if (!searchActive) {
-				return truncateToWidth(`${theme.fg("dim", "过滤：")}${searchQuery}`, width, "");
+				return truncateToWidth(`${theme.fg("dim", t("过滤："))}${searchQuery}`, width, "");
 			}
 			const cursorGlyph = focused ? `${CURSOR_MARKER}${theme.fg("accent", "▌")}` : "";
-			const searchPrefix = theme.fg("accent", "搜索：");
+			const searchPrefix = theme.fg("accent", t("搜索："));
 			const queryWidth = Math.max(0, width - visibleWidth(searchPrefix));
 			const queryDisplay = searchQuery
 				? fitSearchQueryAroundCursor(searchQuery, searchCursor, cursorGlyph, queryWidth)
-				: `${cursorGlyph}${theme.fg("dim", "<输入关键词>")}`;
+				: `${cursorGlyph}${theme.fg("dim", t("<输入关键词>"))}`;
 			return truncateToWidth(`${searchPrefix}${queryDisplay}`, width, "");
 		};
 
 		const getHints = (): MenuHint[] => {
 			const hints: MenuHint[] = [...(options.hints ?? [])];
 			if (!searchable) return hints;
-			if (searchActive) hints.push({ key: "Tab", label: "保留过滤" }, { key: "Esc", label: "清空搜索" });
-			else if (searchQuery) hints.push({ key: "Tab", label: "继续输入" }, { key: "Esc", label: "清空过滤" });
-			else hints.push({ key: "/", label: "搜索" });
+			if (searchActive) hints.push({ key: "Tab", label: t("保留过滤") }, { key: "Esc", label: t("清空搜索") });
+			else if (searchQuery) hints.push({ key: "Tab", label: t("继续输入") }, { key: "Esc", label: t("清空过滤") });
+			else hints.push({ key: "/", label: t("搜索") });
 			return hints;
 		};
 
@@ -473,7 +474,7 @@ function createPersistentMenu<TAction extends MenuAction | FormMenuAction | Shor
 
 				const bodyLines: string[] = [];
 				if (shownRows.length === 0) {
-					const emptyLabel = searchQuery ? `无匹配项：${searchQuery}` : options.emptyLabel ?? "暂无条目";
+					const emptyLabel = searchQuery ? t("无匹配项：{query}", { query: searchQuery }) : options.emptyLabel ?? t("暂无条目");
 					bodyLines.push(truncateToWidth(theme.fg("dim", `  ${emptyLabel}`), width));
 				} else {
 					for (let offset = 0; offset < shownRows.length; offset += 1) {
@@ -525,14 +526,14 @@ export async function showOptionPicker<TChoice extends { id: string; label: stri
 		"",
 		choices.map((choice) => ({
 			id: choice.id,
-			label: choice.id === currentId ? `${choice.label}  ← 当前` : choice.label,
+			label: choice.id === currentId ? `${choice.label}  ${t("← 当前")}` : choice.label,
 		})),
 		cursor,
 		{
 			hints: [
-				{ key: "↑↓", label: "移动" },
-				{ key: "Enter", label: "选择" },
-				{ key: "Esc", label: "返回" },
+				{ key: "↑↓", label: t("移动") },
+				{ key: "Enter", label: t("选择") },
+				{ key: "Esc", label: t("返回") },
 			],
 		},
 	);

@@ -4,19 +4,19 @@
 // [喵喵喵]: 内置值由私有抓包工具生成，公开插件不携带捕获能力 (2026-07-26)
 
 import { cloneStringRecord, hasStringRecordEntries } from "../common.ts";
+import { t } from "../i18n.ts";
 import type { ApiKind, BuiltInClientHeaderProfileId, ClientHeaderProfileId, CompatSettings, StoredClientHeaderCapture } from "../types.ts";
 import { CLAUDE_CODE_CLIENT_HEADERS, CODEX_CLI_CLIENT_HEADERS } from "./builtin-client-headers.ts";
 
 const ANTHROPIC_INTERLEAVED_THINKING_BETA = "interleaved-thinking-2025-05-14";
 
 
-export const CLIENT_HEADER_PROFILE_LABELS: Record<ClientHeaderProfileId, string> = {
-	recommended: "自动推荐",
-	disabled: "不添加",
-	"claude-code": "ClaudeCode",
-	"codex-cli": "Codex",
-	custom: "自定义请求头",
-};
+export function getClientHeaderProfileLabel(profile: ClientHeaderProfileId): string {
+	if (profile === "recommended") return t("自动推荐");
+	if (profile === "disabled") return t("不添加");
+	if (profile === "custom") return t("自定义请求头");
+	return profile === "claude-code" ? "ClaudeCode" : "Codex";
+}
 
 function removeAnthropicBetaFeature(headers: Record<string, string>, feature: string): void {
 	const betaHeaderKey = Object.keys(headers).find((name) => name.toLowerCase() === "anthropic-beta");
@@ -107,7 +107,7 @@ export function getClientHeadersForProfile(
 export function getClientHeaderProfileDisplay(profile: ClientHeaderProfileId, api: ApiKind): string {
 	const resolved = resolveClientHeaderProfile(profile, api);
 	if (profile === "recommended") {
-		return `${CLIENT_HEADER_PROFILE_LABELS.recommended} → ${CLIENT_HEADER_PROFILE_LABELS[resolved]}`;
+		return `${getClientHeaderProfileLabel("recommended")} → ${getClientHeaderProfileLabel(resolved)}`;
 	}
-	return CLIENT_HEADER_PROFILE_LABELS[profile];
+	return getClientHeaderProfileLabel(profile);
 }

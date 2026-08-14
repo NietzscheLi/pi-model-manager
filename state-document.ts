@@ -15,6 +15,7 @@ import {
 	getSingleConfigValueEnvVarName,
 	isCommandConfigValue,
 } from "./config-value-reference.ts";
+import { joinLocalizedList, t } from "./i18n.ts";
 import { findPresetForApi } from "./presets/providers.ts";
 import { normalizeThinkingLevelMap } from "./presets/thinking.ts";
 import { isSensitiveHeaderName } from "./sensitive-redaction.ts";
@@ -181,20 +182,20 @@ function validateUrl(url: string, label: string, errors: string[]): void {
 	try {
 		const parsed = new URL(url);
 		if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-			errors.push(`${label} 必须使用 http 或 https`);
+			errors.push(t("{label} 必须使用 http 或 https", { label }));
 		}
 	} catch {
-		errors.push(`${label} 不是有效 URL`);
+		errors.push(t("{label} 不是有效 URL", { label }));
 	}
 }
 
 function validateHttpProxyUrl(url: string, errors: string[]): void {
 	try {
 		const parsed = new URL(url);
-		if (parsed.protocol !== "http:" && parsed.protocol !== "https:") errors.push("代理地址目前只支持 http:// 或 https:// 代理");
-		if (!parsed.hostname) errors.push("代理地址必须包含主机名");
+		if (parsed.protocol !== "http:" && parsed.protocol !== "https:") errors.push(t("代理地址目前只支持 http:// 或 https:// 代理"));
+		if (!parsed.hostname) errors.push(t("代理地址必须包含主机名"));
 	} catch {
-		errors.push("代理地址不是有效 URL");
+		errors.push(t("代理地址不是有效 URL"));
 	}
 }
 
@@ -207,25 +208,25 @@ export function validateProviderDraft(
 	const errors: string[] = [];
 	const id = draft.providerId.trim();
 
-	if (!id) errors.push("接入 ID 不能为空");
-	else if (!ID_PATTERN.test(id)) errors.push("接入 ID 只能包含字母、数字、点、下划线和连字符");
-	else if (id.length > MAX_PROVIDER_ID_LENGTH) errors.push(`接入 ID 最多 ${MAX_PROVIDER_ID_LENGTH} 个字符`);
+	if (!id) errors.push(t("接入 ID 不能为空"));
+	else if (!ID_PATTERN.test(id)) errors.push(t("接入 ID 只能包含字母、数字、点、下划线和连字符"));
+	else if (id.length > MAX_PROVIDER_ID_LENGTH) errors.push(t("接入 ID 最多 {count} 个字符", { count: MAX_PROVIDER_ID_LENGTH }));
 
 	if (id && oldProviderId !== id && document.providers[id]) {
-		errors.push(`接入 ID 已存在：${id}`);
+		errors.push(t("接入 ID 已存在：{id}", { id }));
 	}
 	if (id && builtInProviderIds.has(id)) {
-		errors.push(`接入 ID 与 pi 内置接入冲突：${id}（请改用其它 ID）`);
+		errors.push(t("接入 ID 与 pi 内置接入冲突：{id}（请改用其它 ID）", { id }));
 	}
 
-	if (!draft.baseUrl.trim()) errors.push("Base URL 不能为空");
+	if (!draft.baseUrl.trim()) errors.push(t("Base URL 不能为空"));
 	else validateUrl(draft.baseUrl.trim(), "Base URL", errors);
 
 
 	if (draft.clientHeaderProfile === "custom") {
 		const profileId = draft.requestHeaderProfileId?.trim();
-		if (!profileId && !hasStringRecordEntries(draft.customClientHeaders)) errors.push("请选择一个自定义请求头");
-		else if (profileId && !document.requestHeaderProfiles[profileId]) errors.push(`自定义请求头不存在：${profileId}`);
+		if (!profileId && !hasStringRecordEntries(draft.customClientHeaders)) errors.push(t("请选择一个自定义请求头"));
+		else if (profileId && !document.requestHeaderProfiles[profileId]) errors.push(t("自定义请求头不存在：{profileId}", { profileId }));
 	}
 
 	if (draft.httpProxyEnabled) {
@@ -242,24 +243,24 @@ export function validateModelDraft(
 	replacedModelId?: string,
 ): string[] {
 	const errors: string[] = [];
-	if (!draft.providerId.trim()) errors.push("接入 ID 不能为空");
-	if (!draft.modelId.trim()) errors.push("模型 ID 不能为空");
+	if (!draft.providerId.trim()) errors.push(t("接入 ID 不能为空"));
+	if (!draft.modelId.trim()) errors.push(t("模型 ID 不能为空"));
 
 	const provider = document.providers[draft.providerId];
-	if (!provider) errors.push(`接入配置不存在：${draft.providerId}`);
+	if (!provider) errors.push(t("接入配置不存在：{providerId}", { providerId: draft.providerId }));
 
-	if (!draft.baseUrl.trim()) errors.push("Base URL 不能为空");
+	if (!draft.baseUrl.trim()) errors.push(t("Base URL 不能为空"));
 	else validateUrl(draft.baseUrl.trim(), "Base URL", errors);
 
 
 	if (!Number.isInteger(draft.contextWindow) || draft.contextWindow <= 0)
-		errors.push("上下文窗口必须是正整数");
+		errors.push(t("上下文窗口必须是正整数"));
 	if (!Number.isInteger(draft.maxTokens) || draft.maxTokens <= 0)
-		errors.push("最大输出必须是正整数");
+		errors.push(t("最大输出必须是正整数"));
 
 	const duplicate = (provider?.models ?? []).find((m) => m.id === draft.modelId.trim());
 	if (duplicate && duplicate.id !== replacedModelId)
-		errors.push(`模型已存在：${draft.modelId.trim()}`);
+		errors.push(t("模型已存在：{modelId}", { modelId: draft.modelId.trim() }));
 
 	return errors;
 }
@@ -274,17 +275,17 @@ export function getProviderChangeWarnings(
 	const changes: string[] = [];
 	if ((current.baseUrl ?? "") !== draft.baseUrl.trim()) changes.push("Base URL");
 	if ((current.apiKey ?? "") !== draft.apiKey.trim()) changes.push("API key");
-	if ((current.api ?? "") !== draft.api) changes.push("API 协议");
-	if ((current.authHeader ?? false) !== draft.authHeader) changes.push("认证头");
+	if ((current.api ?? "") !== draft.api) changes.push(t("API 协议"));
+	if ((current.authHeader ?? false) !== draft.authHeader) changes.push(t("认证头"));
 	if ((current.clientHeaderProfile ?? "recommended") !== draft.clientHeaderProfile
 		|| (current.requestHeaderProfileId ?? "") !== (draft.requestHeaderProfileId ?? ""))
-		changes.push("请求头");
+		changes.push(t("请求头"));
 	if ((current.httpProxyEnabled ?? false) !== draft.httpProxyEnabled
 		|| (current.httpProxyUrl?.trim() || DEFAULT_PROVIDER_HTTP_PROXY_URL) !== (draft.httpProxyUrl.trim() || DEFAULT_PROVIDER_HTTP_PROXY_URL)) {
-		changes.push("本机代理");
+		changes.push(t("本机代理"));
 	}
 	if (changes.length === 0) return [];
-	return [`将修改接入级配置：${changes.join("、")}，会影响该接入下 ${affected} 个模型。`];
+	return [t("将修改接入级配置：{changes}，会影响该接入下 {count} 个模型。", { changes: joinLocalizedList(changes), count: affected })];
 }
 
 // ========== build：draft → stored ==========
@@ -410,7 +411,7 @@ export function buildModelFromDraft(
 export function createRequestHeaderProfileDraft(): RequestHeaderProfileDraft {
 	return {
 		profileId: "custom-headers",
-		profileName: "自定义请求头",
+		profileName: t("自定义请求头"),
 		headers: {},
 		selectedIndex: 0,
 	};
@@ -446,17 +447,17 @@ export function validateRequestHeaderProfileDraft(
 ): string[] {
 	const errors: string[] = [];
 	const profileId = draft.profileId.trim();
-	if (!profileId) errors.push("请求头 ID 不能为空");
-	else if (!ID_PATTERN.test(profileId)) errors.push("请求头 ID 只能包含字母、数字、点、下划线和连字符");
-	else if (RESERVED_REQUEST_HEADER_PROFILE_IDS.has(profileId)) errors.push(`请求头 ID 是插件内置保留名：${profileId}`);
+	if (!profileId) errors.push(t("请求头 ID 不能为空"));
+	else if (!ID_PATTERN.test(profileId)) errors.push(t("请求头 ID 只能包含字母、数字、点、下划线和连字符"));
+	else if (RESERVED_REQUEST_HEADER_PROFILE_IDS.has(profileId)) errors.push(t("请求头 ID 是插件内置保留名：{profileId}", { profileId }));
 	if (profileId && oldProfileId !== profileId && document.requestHeaderProfiles[profileId]) {
-		errors.push(`请求头 ID 已存在：${profileId}`);
+		errors.push(t("请求头 ID 已存在：{profileId}", { profileId }));
 	}
-	if (!draft.profileName.trim()) errors.push("请求头名称不能为空");
-	if (!hasStringRecordEntries(draft.headers)) errors.push("请求头至少需要 1 项");
+	if (!draft.profileName.trim()) errors.push(t("请求头名称不能为空"));
+	if (!hasStringRecordEntries(draft.headers)) errors.push(t("请求头至少需要 1 项"));
 	const sensitiveHeaders = Object.keys(draft.headers).filter(isSensitiveHeaderName);
 	if (sensitiveHeaders.length > 0) {
-		errors.push(`请求头包含会明文落盘的敏感字段：${sensitiveHeaders.join("、")}（请改用 provider API key / 环境变量 / !command）`);
+		errors.push(t("请求头包含会明文落盘的敏感字段：{headers}（请改用 provider API key / 环境变量 / !command）", { headers: joinLocalizedList(sensitiveHeaders) }));
 	}
 	return errors;
 }
@@ -560,7 +561,7 @@ export function upsertModelInDocument(
 ): StateDocument {
 	const next: StateDocument = cloneJson(document);
 	const provider = next.providers[draft.providerId];
-	if (!provider) throw new Error(`upsertModel：接入不存在：${draft.providerId}`);
+	if (!provider) throw new Error(t("upsertModel：接入不存在：{providerId}", { providerId: draft.providerId }));
 	const existing = (provider.models ?? []).find(
 		(m) => m.id === options.replacedModelId || m.id === draft.modelId.trim(),
 	);

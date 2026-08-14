@@ -2,17 +2,17 @@
 
 English · [简体中文](./README.md)
 
-[![Pi](https://img.shields.io/badge/Pi-%3E%3D0.82.0-6f42c1)](https://github.com/earendil-works/pi)
+[![Pi](https://img.shields.io/badge/Pi-%3E%3D0.84.2-6f42c1)](https://github.com/earendil-works/pi)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-0.3.0-2f81f7.svg)](https://github.com/Qihuanxishini/pi-model-manager)
+[![Version](https://img.shields.io/badge/version-0.3.1-2f81f7.svg)](https://github.com/Qihuanxishini/pi-model-manager)
 
 A TUI model and provider manager for [Pi](https://github.com/earendil-works/pi). It keeps Pi's native `models.json` as the single source of truth for model configuration while adding provider/model editing, client-header identities, proxy routing, and protocol compatibility controls.
 
-> The current stable version is `0.3.0` and requires Pi `>=0.82.0`.
+> The current stable version is `0.3.1` and requires Pi `>=0.84.2`.
 
 ## Interface preview
 
-The screens below are rendered by the real components at 88 columns. In practice column widths adapt to your data, the selected row is highlighted with a background colour, and column values are semantically coloured. The TUI copy itself is Simplified Chinese.
+The screens below are rendered by the real components at 88 columns. In practice column widths adapt to your data, the selected row is highlighted with a background colour, and column values are semantically coloured. This preview uses Simplified Chinese; the live UI can switch between Simplified Chinese and English from the dashboard.
 
 ```text
 ────────────────────────────────────────────────────────────────────────────────────────
@@ -126,6 +126,7 @@ Ctrl+S 保存并启用模型；不切换当前会话模型
 ## Features
 
 - Create, edit, and delete providers and models from the `/model-manager` TUI.
+- Start in Simplified Chinese and press `L` on the dashboard to switch to English; the language preference is saved.
 - Supports `openai-completions`, `openai-responses`, `anthropic-messages`, and `google-generative-ai`.
 - Fetch model IDs from compatible upstream APIs or enter them manually.
 - Configure context window, maximum output, vision support, and reasoning support.
@@ -181,6 +182,7 @@ pi install npm:pi-model-manager
    | `N` | Create a provider and its first model |
    | `D` | Delete the selected provider |
    | `H` | Manage reusable header profiles |
+   | `L` | Switch the UI language (Simplified Chinese / English); the choice applies immediately and is saved |
    | `/` | Search the current list; `Tab` leaves the input while keeping the filter, `Esc` clears it |
    | `Esc` | Go back or exit |
 
@@ -266,11 +268,11 @@ Additional considerations:
 
 | Component | Requirement |
 | --- | --- |
-| `@earendil-works/pi-coding-agent` | `>=0.82.0` |
+| `@earendil-works/pi-coding-agent` | `>=0.84.2` |
 | `@earendil-works/pi-tui` | `>=0.75.0` |
 | Runtime mode | `/model-manager` requires the Pi TUI |
 
-The current TUI copy is Simplified Chinese.
+The TUI copy defaults to Simplified Chinese; press `L` on the dashboard to switch to English.
 
 ## Local development
 

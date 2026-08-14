@@ -10,6 +10,8 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { formatUnknownError } from "./common.ts";
+import { DEFAULT_UI_LANGUAGE, joinLocalizedList, setUiLanguage, t } from "./i18n.ts";
+import { readUiLanguage } from "./ui-language-settings.ts";
 import { persistManagedConfiguration, recoverPendingConfigurationTransaction } from "./configuration-persistence.ts";
 import { resetClaudeCodeMetadataSession } from "./claude-code-compat.ts";
 import { findProvidersNeedingBaseUrlNormalization, normalizeProviderBaseUrlsInDocument } from "./state-document.ts";
@@ -25,25 +27,31 @@ interface StartupSummary {
 
 export default async function modelManagerExtension(pi: ExtensionAPI): Promise<void> {
 	const summary: StartupSummary = { startupErrors: [] };
+	setUiLanguage(DEFAULT_UI_LANGUAGE);
+	try {
+		setUiLanguage(await readUiLanguage());
+	} catch (error) {
+		summary.startupErrors.push(t("读取语言设置失败，已使用简体中文：{error}", { error: formatUnknownError(error) }));
+	}
 
 	let configurationBlocked = false;
 	try {
 		await recoverPendingConfigurationTransaction();
 	} catch (error) {
 		configurationBlocked = true;
-		summary.startupErrors.push(`恢复未完成配置事务失败：${formatUnknownError(error)}（为避免读取半完成配置，本次暂不注册模型）`);
+		summary.startupErrors.push(t("恢复未完成配置事务失败：{error}（为避免读取半完成配置，本次暂不注册模型）", { error: formatUnknownError(error) }));
 	}
 	if (!configurationBlocked) {
 		try {
 			const stateForStartup = await readState().catch((error) => {
-				summary.startupErrors.push(`读取 models.json/state.json 失败：${formatUnknownError(error)}（本次启动仅使用内存空配置，不覆盖原文件）`);
+				summary.startupErrors.push(t("读取 models.json/state.json 失败：{error}（本次启动仅使用内存空配置，不覆盖原文件）", { error: formatUnknownError(error) }));
 				return createEmptyState();
 			});
 			for (const warning of await registerCatalogFromState(pi, stateForStartup)) {
-				summary.startupErrors.push(`注册模型目录失败：${warning}`);
+				summary.startupErrors.push(t("注册模型目录失败：{warning}", { warning }));
 			}
 		} catch (error) {
-			summary.startupErrors.push(`读取/注册模型配置失败：${formatUnknownError(error)}`);
+			summary.startupErrors.push(t("读取/注册模型配置失败：{error}", { error: formatUnknownError(error) }));
 		}
 	}
 
@@ -61,7 +69,7 @@ export default async function modelManagerExtension(pi: ExtensionAPI): Promise<v
 			}
 			const currentState = await readState();
 			for (const warning of await registerAllFromState(pi, currentState)) {
-				transportErrors.push(`激活模型接入失败：${warning}`);
+				transportErrors.push(t("激活模型接入失败：{warning}", { warning }));
 			}
 			// [喵喵喵]: 一次性补齐早期版本留在 models.json 里的半成品 baseUrl；
 			// 归一化幂等，写完后后续启动检测不到差异，不会重复写盘。
@@ -76,7 +84,7 @@ export default async function modelManagerExtension(pi: ExtensionAPI): Promise<v
 			}
 		} catch (error) {
 			configurationBlocked = true;
-			transportErrors.push(`恢复、读取或激活模型配置失败：${formatUnknownError(error)}`);
+			transportErrors.push(t("恢复、读取或激活模型配置失败：{error}", { error: formatUnknownError(error) }));
 		}
 
 		if (event.reason === "startup" && !notified) {
@@ -90,7 +98,10 @@ export default async function modelManagerExtension(pi: ExtensionAPI): Promise<v
 		}
 		if (migratedBaseUrlProviderIds.length > 0) {
 			ctx.ui.notify(
-				`[pi-model-manager] 已补全 ${migratedBaseUrlProviderIds.length} 个接入的请求地址（${migratedBaseUrlProviderIds.join("、")}），现在 models.json 存的就是实际请求根地址`,
+				t("[pi-model-manager] 已补全 {count} 个接入的请求地址（{providerIds}），现在 models.json 存的就是实际请求根地址", {
+					count: migratedBaseUrlProviderIds.length,
+					providerIds: joinLocalizedList(migratedBaseUrlProviderIds),
+				}),
 				"info",
 			);
 		}
@@ -103,10 +114,10 @@ export default async function modelManagerExtension(pi: ExtensionAPI): Promise<v
 
 	// ---- 3. 命令：/model-manager → TUI 面板 ----
 	pi.registerCommand("model-manager", {
-		description: "模型接入与请求配置",
+		description: t("模型接入与请求配置 / Model and provider settings"),
 		handler: async (_args, ctx) => {
 			if (ctx.mode !== "tui") {
-				ctx.ui.notify("/model-manager 需要 TUI 交互模式", "error");
+				ctx.ui.notify(t("/model-manager 需要 TUI 交互模式"), "error");
 				return;
 			}
 			await runDashboard(pi, ctx);

@@ -4,6 +4,7 @@ import { hostname } from "node:os";
 import { open, mkdir, readFile, stat, unlink, type FileHandle } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { t } from "./i18n.ts";
 import { STATE_DIR } from "./state-metadata-store.ts";
 
 interface ConfigurationLockRecord {
@@ -108,7 +109,7 @@ async function acquireConfigurationLock(): Promise<HeldConfigurationLock> {
 			await sleep(LOCK_RETRY_DELAYS_MS[attempt]!);
 		}
 	}
-	throw new Error(`另一个 Pi 进程正在保存模型配置；无法在限定时间内获取锁：${LOCK_PATH}`);
+	throw new Error(t("另一个 Pi 进程正在保存模型配置；无法在限定时间内获取锁：{path}", { path: LOCK_PATH }));
 }
 
 async function releaseConfigurationLock(lock: HeldConfigurationLock): Promise<void> {
@@ -121,7 +122,7 @@ async function releaseConfigurationLock(lock: HeldConfigurationLock): Promise<vo
 		throw error;
 	}
 	if (current?.token !== lock.record.token) {
-		throw new Error(`配置锁所有权在释放前发生变化，已保留锁文件供检查：${LOCK_PATH}`);
+		throw new Error(t("配置锁所有权在释放前发生变化，已保留锁文件供检查：{path}", { path: LOCK_PATH }));
 	}
 	await unlink(LOCK_PATH);
 }
