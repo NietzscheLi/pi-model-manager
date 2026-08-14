@@ -1,7 +1,11 @@
 // 模型管理保存边界：锁内重读最新 models.json/state.json，目标化应用 mutation，
 // 再以可恢复事务写入两个文件。registry 刷新在释放文件锁后执行。
 
-import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+
+// [喵喵喵]: 保存后只需要刷新模型 registry，不依赖命令上下文的其余能力；
+// 声明成最小契约，session_start 的 ExtensionContext 也能直接复用这些函数。
+type RegistryRefreshContext = Pick<ExtensionContext, "modelRegistry">;
 import { unlink } from "node:fs/promises";
 import { atomicWriteText } from "./atomic-write.ts";
 import { formatUnknownError, isObjectRecord, stringifyJson } from "./common.ts";
@@ -220,7 +224,7 @@ async function persistConfigurationInsideLock(
 }
 
 async function refreshRegistryAfterPersistence(
-	ctx: ExtensionCommandContext,
+	ctx: RegistryRefreshContext,
 	persist: () => Promise<StateDocument>,
 ): Promise<StateDocument> {
 	let document: StateDocument;
@@ -239,7 +243,7 @@ async function refreshRegistryAfterPersistence(
 }
 
 export async function persistManagedConfiguration(
-	ctx: ExtensionCommandContext,
+	ctx: RegistryRefreshContext,
 	prepare: PrepareConfigurationChange,
 ): Promise<StateDocument> {
 	return refreshRegistryAfterPersistence(ctx, () => persistConfigurationInsideLock(
@@ -254,7 +258,7 @@ export async function persistManagedConfiguration(
 }
 
 export async function persistProviderRenameConfiguration(
-	ctx: ExtensionCommandContext,
+	ctx: RegistryRefreshContext,
 	prepare: PrepareConfigurationChange,
 	oldProviderId: string,
 	newProviderId: string,
@@ -271,7 +275,7 @@ export async function persistProviderRenameConfiguration(
 }
 
 export async function persistModelConfiguration(
-	ctx: ExtensionCommandContext,
+	ctx: RegistryRefreshContext,
 	prepare: PrepareConfigurationChange,
 	providerId: string,
 	modelId: string,
@@ -288,7 +292,7 @@ export async function persistModelConfiguration(
 }
 
 export async function persistModelRenameConfiguration(
-	ctx: ExtensionCommandContext,
+	ctx: RegistryRefreshContext,
 	prepare: PrepareConfigurationChange,
 	providerId: string,
 	oldModelId: string,
@@ -307,7 +311,7 @@ export async function persistModelRenameConfiguration(
 }
 
 export async function persistModelDeletionConfiguration(
-	ctx: ExtensionCommandContext,
+	ctx: RegistryRefreshContext,
 	prepare: PrepareConfigurationChange,
 	providerId: string,
 	modelId: string,

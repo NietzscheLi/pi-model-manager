@@ -71,9 +71,15 @@ function appendGoogleGenerativeApiVersionForRootUrl(baseUrl: string): string {
 	return parsed.toString();
 }
 
+// [喵喵喵]: URL.toString() 对根路径会补出尾斜杠，归一化结果现在会落盘到 models.json，
+// 多一个斜杠会让本来正确的配置被判定为需要迁移，白白改写用户配置。
+function stripRootTrailingSlash(url: string): string {
+	return url.replace(/^(https?:\/\/[^/?#]+)\/(?=$|[?#])/i, "$1");
+}
+
 export function resolveRuntimeBaseUrl(api: ApiKind, baseUrl: string): string {
-	if (api === "anthropic-messages") return stripTrailingV1(baseUrl);
-	if (api === "openai-completions" || api === "openai-responses") return appendV1ForRootUrl(baseUrl);
-	if (api === "google-generative-ai") return appendGoogleGenerativeApiVersionForRootUrl(baseUrl);
+	if (api === "anthropic-messages") return stripRootTrailingSlash(stripTrailingV1(baseUrl));
+	if (api === "openai-completions" || api === "openai-responses") return stripRootTrailingSlash(appendV1ForRootUrl(baseUrl));
+	if (api === "google-generative-ai") return stripRootTrailingSlash(appendGoogleGenerativeApiVersionForRootUrl(baseUrl));
 	return trimTrailingSlashes(baseUrl);
 }

@@ -3,6 +3,7 @@ import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { after, beforeEach } from "node:test";
+import type { StateDocument } from "../types.ts";
 
 const agentDir = join(tmpdir(), `pi-model-manager-persistence-${process.pid}`);
 process.env.PI_CODING_AGENT_DIR = agentDir;
@@ -16,6 +17,7 @@ const {
 const { STATE_DIR, STATE_PATH } = await import("../state-metadata-store.ts");
 const { MODELS_JSON_PATH } = await import("../models-json-manager.ts");
 const { readState } = await import("../state-store.ts");
+const { findProvidersNeedingBaseUrlNormalization, normalizeProviderBaseUrlsInDocument } = await import("../state-document.ts");
 
 const transactionPath = join(STATE_DIR, "config-transaction.json");
 
@@ -218,4 +220,28 @@ test("v1 legacy Provider 会在任意配置保存时迁入 models.json", async (
 	const state = await readState();
 	assert.equal(state.providers.legacy?.managed, true);
 	assert.equal(state.providers.legacy?.models[0]?.id, "legacy-model");
+});
+
+test("baseUrl 迁移只挑受管理且确实需要归一化的接入", () => {
+	const document = {
+		providers: {
+			managedStale: { api: "openai-responses", baseUrl: "https://api.deepseek.com", managed: true, models: [] },
+			managedOk: { api: "openai-responses", baseUrl: "https://api.deepseek.com/v1", managed: true, models: [] },
+			managedAnthropic: { api: "anthropic-messages", baseUrl: "https://api.anthropic.com", managed: true, models: [] },
+			nativeStale: { api: "openai-responses", baseUrl: "https://native.example.com", managed: false, models: [] },
+		},
+		requestHeaderProfiles: {},
+		clientHeaderCaptures: {},
+	} as unknown as StateDocument;
+
+	const targets = findProvidersNeedingBaseUrlNormalization(document);
+	assert.deepEqual(targets, ["managedStale"], "已正确的接入和原生接入都不该进入迁移集合");
+
+	const next = normalizeProviderBaseUrlsInDocument(document, targets);
+	assert.equal(next.providers.managedStale!.baseUrl, "https://api.deepseek.com/v1");
+	assert.equal(next.providers.nativeStale!.baseUrl, "https://native.example.com", "原生接入的 baseUrl 不是本插件写的，不能代改");
+	assert.equal(document.providers.managedStale!.baseUrl, "https://api.deepseek.com", "原文档必须保持不可变");
+
+	// 迁移后重跑检测必须为空，保证不会每次启动都写盘
+	assert.deepEqual(findProvidersNeedingBaseUrlNormalization(next), []);
 });

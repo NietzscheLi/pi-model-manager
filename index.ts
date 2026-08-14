@@ -10,8 +10,9 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { formatUnknownError } from "./common.ts";
-import { recoverPendingConfigurationTransaction } from "./configuration-persistence.ts";
+import { persistManagedConfiguration, recoverPendingConfigurationTransaction } from "./configuration-persistence.ts";
 import { resetClaudeCodeMetadataSession } from "./claude-code-compat.ts";
+import { findProvidersNeedingBaseUrlNormalization, normalizeProviderBaseUrlsInDocument } from "./state-document.ts";
 import { closeLocalProxyServer } from "./local-proxy-service.ts";
 import { registerAllFromState, registerCatalogFromState } from "./provider-registrar.ts";
 import { createRequestPipeline } from "./request-pipeline.ts";
@@ -52,6 +53,7 @@ export default async function modelManagerExtension(pi: ExtensionAPI): Promise<v
 	pi.on("session_start", async (event, ctx) => {
 		resetClaudeCodeMetadataSession();
 		const transportErrors: string[] = [];
+		let migratedBaseUrlProviderIds: string[] = [];
 		try {
 			if (configurationBlocked) {
 				await recoverPendingConfigurationTransaction();
@@ -60,6 +62,17 @@ export default async function modelManagerExtension(pi: ExtensionAPI): Promise<v
 			const currentState = await readState();
 			for (const warning of await registerAllFromState(pi, currentState)) {
 				transportErrors.push(`激活模型接入失败：${warning}`);
+			}
+			// [喵喵喵]: 一次性补齐早期版本留在 models.json 里的半成品 baseUrl；
+			// 归一化幂等，写完后后续启动检测不到差异，不会重复写盘。
+			const staleBaseUrlProviderIds = findProvidersNeedingBaseUrlNormalization(currentState);
+			if (staleBaseUrlProviderIds.length > 0) {
+				await persistManagedConfiguration(ctx, (latest) => ({
+					document: normalizeProviderBaseUrlsInDocument(latest, staleBaseUrlProviderIds),
+					changedProviderIds: [...staleBaseUrlProviderIds],
+					removedProviderIds: [],
+				}));
+				migratedBaseUrlProviderIds = staleBaseUrlProviderIds;
 			}
 		} catch (error) {
 			configurationBlocked = true;
@@ -74,6 +87,12 @@ export default async function modelManagerExtension(pi: ExtensionAPI): Promise<v
 		}
 		for (const error of transportErrors) {
 			ctx.ui.notify(`[pi-model-manager] ${error}`, "error");
+		}
+		if (migratedBaseUrlProviderIds.length > 0) {
+			ctx.ui.notify(
+				`[pi-model-manager] 已补全 ${migratedBaseUrlProviderIds.length} 个接入的请求地址（${migratedBaseUrlProviderIds.join("、")}），现在 models.json 存的就是实际请求根地址`,
+				"info",
+			);
 		}
 	});
 

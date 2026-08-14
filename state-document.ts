@@ -18,6 +18,7 @@ import {
 import { findPresetForApi } from "./presets/providers.ts";
 import { normalizeThinkingLevelMap } from "./presets/thinking.ts";
 import { isSensitiveHeaderName } from "./sensitive-redaction.ts";
+import { resolveRuntimeBaseUrl } from "./runtime-base-url.ts";
 import type {
 	ApiKind,
 	CompatSettings,
@@ -481,6 +482,28 @@ export function upsertRequestHeaderProfileInDocument(
 		name: draft.profileName.trim(),
 		headers: cloneStringRecord(draft.headers),
 	};
+	return next;
+}
+// [喵喵喵]: 早期版本只在注册时补全 baseUrl，models.json 里留下的是半成品（如 openai 缺 /v1）。
+// 插件未加载时 pi 会回落到 models.json 直接请求，因此需要把存量值一次性归一化。
+// 只处理受管理接入；原生接入的 baseUrl 不是本插件写的，不能代为改写。
+export function findProvidersNeedingBaseUrlNormalization(document: StateDocument): string[] {
+	return Object.entries(document.providers)
+		.filter(([, provider]) => provider.managed && provider.baseUrl)
+		.filter(([, provider]) => resolveRuntimeBaseUrl(provider.api, provider.baseUrl) !== provider.baseUrl)
+		.map(([providerId]) => providerId);
+}
+
+export function normalizeProviderBaseUrlsInDocument(
+	document: StateDocument,
+	providerIds: readonly string[],
+): StateDocument {
+	const next: StateDocument = cloneJson(document);
+	for (const providerId of providerIds) {
+		const provider = next.providers[providerId];
+		if (!provider?.managed || !provider.baseUrl) continue;
+		provider.baseUrl = resolveRuntimeBaseUrl(provider.api, provider.baseUrl);
+	}
 	return next;
 }
 
