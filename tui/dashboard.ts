@@ -44,38 +44,44 @@ import {
 	formatProviderDetailLines,
 	formatProviderEndpointLine,
 	formatProviderSummaryLine,
+	getModelColumnWidths,
+	getProviderDisplayLabel,
+	getProviderNameColumnWidth,
 } from "./ui-helpers.ts";
 import { runHeaderProfilesPanel } from "./header-profiles-panel.ts";
 
 interface DashboardRow {
 	providerId: string;
 	label: string;
+	searchText: string;
 }
 
 interface ProviderMenuRow {
 	modelId: string;
 	model: StoredModel;
 	label: string;
+	searchText: string;
 }
 
 function buildRows(document: StateDocument, builtInProviderIds: ReadonlySet<string>): DashboardRow[] {
 	return Object.keys(document.providers)
 		.filter((providerId) => !builtInProviderIds.has(providerId))
 		.sort((a, b) => a.localeCompare(b))
-		.map((providerId) => ({
-			providerId,
-			label: formatProviderConsoleRow(providerId, document.providers[providerId]!, document.requestHeaderProfiles),
-		}));
+		.map((providerId) => {
+			const provider = document.providers[providerId]!;
+			const label = formatProviderConsoleRow(providerId, provider, 81, { requestHeaderProfiles: document.requestHeaderProfiles });
+			// [喵喵喵]: label 已被列宽截断，搜索需要补上完整的接入 ID 与名称。
+			return { providerId, label, searchText: `${providerId} ${getProviderDisplayName(providerId, provider)} ${label}` };
+		});
 }
 
 function buildProviderMenuRows(provider: StoredProvider): ProviderMenuRow[] {
 	return [...provider.models]
 		.sort((a, b) => a.id.localeCompare(b.id))
-		.map((model) => ({
-			modelId: model.id,
-			model,
-			label: formatModelListRow(provider, model),
-		}));
+		.map((model) => {
+			const label = formatModelListRow(provider, model);
+			return { modelId: model.id, model, label, searchText: `${model.id} ${model.name ?? ""} ${label}` };
+		});
 }
 
 function notifyValidationErrors(ctx: ExtensionCommandContext, title: string, errors: string[]): void {
@@ -234,11 +240,12 @@ async function showProviderMenu(pi: ExtensionAPI, ctx: ExtensionCommandContext, 
 			return true;
 		}
 		const rows = buildProviderMenuRows(currentProvider);
+		const modelColumns = getModelColumnWidths(currentProvider.models);
 		const action = await showPersistentShortcutMenu<ProviderShortcut>(
 			ctx,
 			`/model-manager / ${getProviderDisplayName(providerId, currentProvider)}`,
 			"",
-			rows.map((row, index) => ({ id: `${index}`, label: row.label })),
+			rows.map((row, index) => ({ id: `${index}`, label: row.label, searchText: row.searchText })),
 			cursor,
 			[
 				{ input: "a", shortcut: "add-model" },
@@ -250,13 +257,20 @@ async function showProviderMenu(pi: ExtensionAPI, ctx: ExtensionCommandContext, 
 					formatProviderSummaryLine(currentProvider, state.requestHeaderProfiles),
 					formatProviderEndpointLine(currentProvider),
 				],
-				tableHeader: (width) => formatModelListHeader(currentProvider, width),
-				formatRow: (menuRow, width) => {
+				tableHeader: (width) => formatModelListHeader(currentProvider, width, modelColumns),
+				formatRow: (menuRow, width, theme) => {
 					const row = rows[Number.parseInt(menuRow.id, 10)];
-					return row ? formatModelListRow(currentProvider, row.model, width) : menuRow.label;
+					return row ? formatModelListRow(currentProvider, row.model, width, { ...modelColumns, theme }) : menuRow.label;
 				},
 				visibleRows: Math.min(12, Math.max(1, rows.length)),
-				footer: "↑↓ 选择   Enter 编辑模型   a 添加模型   e 编辑接入   d 删除模型   Esc 返回",
+				hints: [
+					{ key: "↑↓", label: "选择" },
+					{ key: "Enter", label: "编辑模型" },
+					{ key: "A", label: "添加模型" },
+					{ key: "E", label: "编辑接入" },
+					{ key: "D", label: "删除模型" },
+					{ key: "Esc", label: "返回" },
+				],
 				emptyLabel: "暂无模型；按 a 添加第一个模型",
 			},
 		);
@@ -330,10 +344,13 @@ export async function runDashboard(pi: ExtensionAPI, ctx: ExtensionCommandContex
 		const state = await readState();
 		const builtInProviderIds = await getBuiltinProviderIds();
 		const rows = buildRows(state, builtInProviderIds);
+		const nameWidth = getProviderNameColumnWidth(
+			rows.map((row) => getProviderDisplayLabel(row.providerId, state.providers[row.providerId]!)),
+		);
 		const modelCount = rows.reduce((sum, row) => sum + (state.providers[row.providerId]?.models.length ?? 0), 0);
 		const profileCount = Object.keys(state.requestHeaderProfiles).length;
 		const captureCount = Object.keys(state.clientHeaderCaptures).length;
-		const menuRows = rows.map((r, index) => ({ id: `${index}`, label: r.label }));
+		const menuRows = rows.map((r, index) => ({ id: `${index}`, label: r.label, searchText: r.searchText }));
 		const action = await showPersistentShortcutMenu<DashboardShortcut>(
 			ctx,
 			"/model-manager",
@@ -347,20 +364,29 @@ export async function runDashboard(pi: ExtensionAPI, ctx: ExtensionCommandContex
 			],
 			{
 				summaryLines: [`${rows.length} 接入 · ${modelCount} 模型 · ${captureCount} 内置抓包 · ${profileCount} 自定义请求头`],
-				tableHeader: formatProviderConsoleHeader,
-				formatRow: (menuRow, width) => {
+				tableHeader: (width) => formatProviderConsoleHeader(width, { nameWidth }),
+				formatRow: (menuRow, width, theme) => {
 					const row = rows[Number.parseInt(menuRow.id, 10)];
 					const provider = row ? state.providers[row.providerId] : undefined;
 					return row && provider
-						? formatProviderConsoleRow(row.providerId, provider, state.requestHeaderProfiles, width)
+						? formatProviderConsoleRow(row.providerId, provider, width, { requestHeaderProfiles: state.requestHeaderProfiles, theme, nameWidth })
 						: menuRow.label;
 				},
-				getDetailLines: (selectedRow) => {
+				getDetailLines: (selectedRow, theme) => {
 					const row = rows[Number.parseInt(selectedRow?.id ?? "", 10)];
 					const provider = row ? state.providers[row.providerId] : undefined;
-					return row && provider ? formatProviderDetailLines(row.providerId, provider, state.requestHeaderProfiles) : [];
+					return row && provider
+						? formatProviderDetailLines(row.providerId, provider, { requestHeaderProfiles: state.requestHeaderProfiles, theme })
+						: [];
 				},
-				footer: "↑↓ 选择   Enter 进入   n 新建接入   d 删除接入   h 请求头   Esc 退出",
+				hints: [
+					{ key: "↑↓", label: "选择" },
+					{ key: "Enter", label: "进入" },
+					{ key: "N", label: "新建接入" },
+					{ key: "D", label: "删除接入" },
+					{ key: "H", label: "请求头" },
+					{ key: "Esc", label: "退出" },
+				],
 				emptyLabel: "暂无自定义接入；按 n 新建",
 			},
 		);

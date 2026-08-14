@@ -3,7 +3,7 @@
 // 管理可复用的客户端请求头。接入编辑器只选择已存在的请求头，
 // 不在模型内部新增一次性 JSON，避免配置分散。
 
-import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
 import { formatUnknownError, parseStringRecordJson } from "../common.ts";
 import { deleteRequestHeaderProfileConfiguration, saveRequestHeaderProfileConfiguration } from "../header-profile-mutations.ts";
 import { CLAUDE_CODE_CLIENT_HEADERS, CODEX_CLI_CLIENT_HEADERS } from "../presets/builtin-client-headers.ts";
@@ -14,13 +14,16 @@ import {
 	validateRequestHeaderProfileDraft,
 } from "../state-document.ts";
 import { readState } from "../state-store.ts";
-import type { RequestHeaderProfileDraft, StoredClientHeaderCapture, StoredRequestHeaderProfile } from "../types.ts";
+import type { RequestHeaderProfileDraft, StateDocument, StoredClientHeaderCapture, StoredRequestHeaderProfile } from "../types.ts";
 import { padLabel, showPersistentFormMenu, showPersistentShortcutMenu, type MenuCursor } from "./persistent-menu.ts";
-import { fitColumn } from "./ui-helpers.ts";
+import { fitColumn, formatDetailField, formatDetailTitle } from "./ui-helpers.ts";
 
 interface ProfileRow {
 	profileId: string;
 	label: string;
+	searchText: string;
+	// [喵喵喵]: 引用计数要遍历全部 Provider，每帧重算浪费；构造行时算一次即可。
+	usedCount: number;
 }
 
 interface FieldRow {
@@ -57,8 +60,13 @@ const HEADER_TEMPLATES: HeaderTemplate[] = [
 	},
 ];
 
-function buildRows(profileIds: string[]): ProfileRow[] {
-	return profileIds.map((profileId) => ({ profileId, label: "" }));
+function buildProfileRows(document: StateDocument, profileIds: string[]): ProfileRow[] {
+	return profileIds.map((profileId) => {
+		const profile = document.requestHeaderProfiles[profileId]!;
+		const usedCount = countModelsUsingRequestHeaderProfile(document, profileId);
+		const label = formatProfileRow(profileId, profile, usedCount);
+		return { profileId, label, usedCount, searchText: `${profileId} ${profile.name} ${label}` };
+	});
 }
 
 function formatCapturedAt(capturedAt: string): string {
@@ -121,15 +129,20 @@ function formatProfileTableHeader(menuWidth: number): string {
 	}, Math.max(0, menuWidth - 2))}`;
 }
 
-function formatProfileDetailLines(profileId: string, profile: StoredRequestHeaderProfile, usedCount: number): string[] {
+function formatProfileDetailLines(
+	profileId: string,
+	profile: StoredRequestHeaderProfile,
+	usedCount: number,
+	theme?: Theme,
+): string[] {
 	const headerNames = Object.keys(profile.headers);
 	const preview = headerNames.length > 0
 		? headerNames.slice(0, 6).join(", ") + (headerNames.length > 6 ? ", ..." : "")
 		: "<empty>";
 	return [
-		`${profile.name} (${profileId})`,
-		`  usage     ${usedCount} models`,
-		`  headers   ${preview}`,
+		formatDetailTitle(`${profile.name} (${profileId})`, theme),
+		formatDetailField("usage", `${usedCount} models`, theme),
+		formatDetailField("headers", preview, theme),
 	];
 }
 
@@ -225,7 +238,12 @@ async function editProfile(
 				summaryLines: [
 					"认证类敏感 header 会被拒绝；API key 请放在接入配置中",
 				],
-				footer: "↑↓ 选择   Enter 编辑   Ctrl+S 保存并同步   Esc 返回",
+				hints: [
+					{ key: "↑↓", label: "选择" },
+					{ key: "Enter", label: "编辑" },
+					{ key: "Ctrl+S", label: "保存并同步" },
+					{ key: "Esc", label: "返回" },
+				],
 			},
 		);
 		if (action.type === "cancel") return { action: "cancel" };
@@ -296,19 +314,12 @@ export async function runHeaderProfilesPanel(pi: ExtensionAPI, ctx: ExtensionCom
 	while (true) {
 		const state = await readState();
 		const profileIds = Object.keys(state.requestHeaderProfiles).sort((a, b) => a.localeCompare(b));
-		const rows = buildRows(profileIds).map((row) => {
-			const profile = state.requestHeaderProfiles[row.profileId]!;
-			const usedCount = countModelsUsingRequestHeaderProfile(state, row.profileId);
-			return {
-				...row,
-				label: formatProfileRow(row.profileId, profile, usedCount),
-			};
-		});
+		const rows = buildProfileRows(state, profileIds);
 		const action = await showPersistentShortcutMenu<HeaderProfileShortcut>(
 			ctx,
 			"/model-manager / 请求头",
 			"",
-			rows.map((row, index) => ({ id: `${index}`, label: row.label })),
+			rows.map((row, index) => ({ id: `${index}`, label: row.label, searchText: row.searchText })),
 			cursor,
 			[
 				{ input: "n", shortcut: "new-profile" },
@@ -326,17 +337,23 @@ export async function runHeaderProfilesPanel(pi: ExtensionAPI, ctx: ExtensionCom
 					const row = rows[Number.parseInt(menuRow.id, 10)];
 					const profile = row ? state.requestHeaderProfiles[row.profileId] : undefined;
 					return row && profile
-						? formatProfileRow(row.profileId, profile, countModelsUsingRequestHeaderProfile(state, row.profileId), width)
+						? formatProfileRow(row.profileId, profile, row.usedCount, width)
 						: menuRow.label;
 				},
-				getDetailLines: (selectedRow) => {
+				getDetailLines: (selectedRow, theme) => {
 					const row = rows[Number.parseInt(selectedRow?.id ?? "", 10)];
 					const profile = row ? state.requestHeaderProfiles[row.profileId] : undefined;
 					return row && profile
-						? formatProfileDetailLines(row.profileId, profile, countModelsUsingRequestHeaderProfile(state, row.profileId))
+						? formatProfileDetailLines(row.profileId, profile, row.usedCount, theme)
 						: [];
 				},
-				footer: "↑↓ 选择   Enter 编辑请求头   n 新建自定义   d 删除   Esc 返回",
+				hints: [
+					{ key: "↑↓", label: "选择" },
+					{ key: "Enter", label: "编辑请求头" },
+					{ key: "N", label: "新建自定义" },
+					{ key: "D", label: "删除" },
+					{ key: "Esc", label: "返回" },
+				],
 				emptyLabel: "暂无自定义请求头；按 n 新建",
 			},
 		);

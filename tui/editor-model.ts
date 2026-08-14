@@ -4,13 +4,13 @@
 // 关键差异：
 //   - 请求头已经收敛到接入级；模型编辑器只编辑模型自身能力
 //   - 提供"从上游拉取模型 ID 列表"入口（OpenAI/Anthropic/Google）
-//   - 支持视觉用开关式 select，保存时仍映射为 text / text,image
+//   - 视觉支持用开关式 select，保存时仍映射为 text / text,image
 
 import { BorderedLoader, type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { AnthropicThinkingProtocol, BuiltInClientHeaderProfileId, ModelDraft, ModelListFetchOutcome, ReasoningMode, StoredClientHeaderCapture, StoredRequestHeaderProfile } from "../types.ts";
 import { fetchModelIds } from "./model-list-fetch.ts";
 import { pickModelIdFromList } from "./model-picker.ts";
-import { showPersistentFormMenu, showPersistentMenu, padLabel, type HorizontalDirection, type MenuCursor } from "./persistent-menu.ts";
+import { showOptionPicker, showPersistentFormMenu, padLabel, type MenuCursor } from "./persistent-menu.ts";
 import {
 	describeVisionInput,
 	formatApiShort,
@@ -22,6 +22,8 @@ interface FieldRow {
 	id: string;
 	label: string;
 	value: string;
+	// 开关类字段可用 ←→ 就地切换；其余字段需要 Enter 进入输入或选择器。
+	adjustable?: boolean;
 }
 
 
@@ -50,32 +52,23 @@ function getIntegerFieldLabel(field: "contextWindow" | "maxTokens"): string {
 	return field === "contextWindow" ? "上下文窗口" : "最大输出";
 }
 
-function cycleSwitchState(current: boolean, direction: HorizontalDirection): boolean {
-	const states = [false, true];
-	const currentIndex = current ? 1 : 0;
-	const delta = direction === "right" ? 1 : -1;
-	return states[(currentIndex + delta + states.length) % states.length]!;
-}
 
-function applyHorizontalToggle(draft: ModelDraft, fieldId: string, direction: HorizontalDirection): boolean {
+// 开关字段在两个方向上都是取反，因此不看 direction；返回是否真的切换了字段。
+function applyHorizontalToggle(draft: ModelDraft, fieldId: string): boolean {
 	if (fieldId === "visionInput") {
-		const enabled = cycleSwitchState(supportsVisionInput(draft.inputKinds), direction);
-		draft.inputKinds = enabled ? ["text", "image"] : ["text"];
+		draft.inputKinds = supportsVisionInput(draft.inputKinds) ? ["text"] : ["text", "image"];
 		return true;
 	}
 	if (fieldId === "reasoning") {
-		const enabled = cycleSwitchState(draft.reasoningMode === "enabled", direction);
-		draft.reasoningMode = enabled ? "enabled" : "disabled";
+		draft.reasoningMode = draft.reasoningMode === "enabled" ? "disabled" : "enabled";
 		return true;
 	}
 	if (fieldId === "anthropicThinkingProtocol") {
-		const enabled = cycleSwitchState(draft.anthropicThinkingProtocol === "adaptive", direction);
-		draft.anthropicThinkingProtocol = enabled ? "adaptive" : "legacy";
+		draft.anthropicThinkingProtocol = draft.anthropicThinkingProtocol === "adaptive" ? "legacy" : "adaptive";
 		return true;
 	}
 	if (fieldId === "openAIServiceTier") {
-		const enabled = cycleSwitchState(draft.openAIServiceTier === "priority", direction);
-		draft.openAIServiceTier = enabled ? "priority" : undefined;
+		draft.openAIServiceTier = draft.openAIServiceTier === "priority" ? undefined : "priority";
 		return true;
 	}
 	return false;
@@ -86,31 +79,25 @@ function buildRows(draft: ModelDraft): FieldRow[] {
 		{ id: "modelId", label: "模型 ID", value: draft.modelId || "<未填写>" },
 		{ id: "fetch", label: "重新拉取", value: "上游模型列表" },
 		{ id: "modelName", label: "显示名称", value: draft.modelName || "默认 = 模型 ID" },
-		{ id: "visionInput", label: "支持视觉", value: describeVisionInput(draft.inputKinds) },
-		{ id: "reasoning", label: "Thinking", value: describeReasoningMode(draft.reasoningMode) },
+		{ id: "visionInput", label: "视觉支持", value: describeVisionInput(draft.inputKinds), adjustable: true },
+		{ id: "reasoning", label: "Thinking", value: describeReasoningMode(draft.reasoningMode), adjustable: true },
 	];
 	if (shouldShowAnthropicThinkingProtocol(draft)) {
 		rows.push({
 			id: "anthropicThinkingProtocol",
 			label: "Adaptive",
 			value: describeAnthropicThinkingProtocol(draft.anthropicThinkingProtocol!),
+			adjustable: true,
 		});
 	}
 	if (shouldShowOpenAIServiceTier(draft)) {
-		rows.push({ id: "openAIServiceTier", label: "Fast mode", value: describeOpenAIServiceTier(draft) });
+		rows.push({ id: "openAIServiceTier", label: "Fast mode", value: describeOpenAIServiceTier(draft), adjustable: true });
 	}
 	rows.push(
 		{ id: "contextWindow", label: "上下文窗口", value: String(draft.contextWindow) },
 		{ id: "maxTokens", label: "最大输出", value: String(draft.maxTokens) },
 	);
 	return rows;
-}
-
-function getAdjustableRowIds(draft: ModelDraft): string[] {
-	const ids = ["visionInput", "reasoning"];
-	if (shouldShowAnthropicThinkingProtocol(draft)) ids.push("anthropicThinkingProtocol");
-	if (shouldShowOpenAIServiceTier(draft)) ids.push("openAIServiceTier");
-	return ids;
 }
 
 function getSelectedCustomHeaders(
@@ -219,85 +206,51 @@ async function editField(
 		return;
 	}
 	if (fieldId === "visionInput") {
-		const current = supportsVisionInput(draft.inputKinds);
-		const cursor: MenuCursor = { index: VISION_INPUT_CHOICES.findIndex((choice) => choice.enabled === current) };
-		const action = await showPersistentMenu(
-			ctx,
-			"支持视觉输入",
-			"↑↓ 移动 · Enter 选择 · Esc 返回",
-			VISION_INPUT_CHOICES.map((choice) => ({
-				id: choice.enabled ? "enabled" : "disabled",
-				label: choice.enabled === current ? `${choice.label}  ← 当前` : choice.label,
-			})),
-			cursor,
-		);
-		if (action.type === "cancel") return;
-		const choice = VISION_INPUT_CHOICES.find((candidate) => (candidate.enabled ? "enabled" : "disabled") === action.id);
+		const choices = VISION_INPUT_CHOICES.map((choice) => ({
+			id: choice.enabled ? "enabled" : "disabled",
+			label: choice.label,
+			kinds: choice.kinds,
+		}));
+		const choice = await showOptionPicker(ctx, "视觉支持", choices, supportsVisionInput(draft.inputKinds) ? "enabled" : "disabled");
 		if (choice) draft.inputKinds = [...choice.kinds];
 		return;
 	}
 	if (fieldId === "reasoning") {
-		const choices: Array<{ mode: ReasoningMode; label: string }> = [
-			{ mode: "disabled", label: "关闭 — 不发送模型推理参数" },
-			{ mode: "enabled", label: "开启 — 启用模型推理参数" },
-		];
-		const cursor: MenuCursor = { index: choices.findIndex((choice) => choice.mode === draft.reasoningMode) };
-		const action = await showPersistentMenu(
+		const choice = await showOptionPicker(
 			ctx,
 			"Thinking",
-			"↑↓ 移动 · Enter 选择 · Esc 返回",
-			choices.map((choice) => ({
-				id: choice.mode,
-				label: choice.mode === draft.reasoningMode ? `${choice.label}  ← 当前` : choice.label,
-			})),
-			cursor,
+			[
+				{ id: "disabled" as ReasoningMode, label: "关闭 — 不发送模型推理参数" },
+				{ id: "enabled" as ReasoningMode, label: "开启 — 启用模型推理参数" },
+			],
+			draft.reasoningMode,
 		);
-		if (action.type === "cancel") return;
-		const choice = choices.find((candidate) => candidate.mode === action.id);
-		if (choice) draft.reasoningMode = choice.mode;
+		if (choice) draft.reasoningMode = choice.id;
 		return;
 	}
 	if (fieldId === "anthropicThinkingProtocol") {
-		const choices: Array<{ protocol: AnthropicThinkingProtocol; label: string }> = [
-			{ protocol: "adaptive", label: "开启：新版模型，发送 thinking.type=adaptive 和 output_config.effort" },
-			{ protocol: "legacy", label: "关闭：旧版接口，发送 thinking.type=enabled 和 budget_tokens" },
-		];
-		const current = draft.anthropicThinkingProtocol ?? "legacy";
-		const cursor: MenuCursor = { index: choices.findIndex((choice) => choice.protocol === current) };
-		const action = await showPersistentMenu(
+		const choice = await showOptionPicker(
 			ctx,
 			"Adaptive",
-			"↑↓ 移动 · Enter 选择 · Esc 返回",
-			choices.map((choice) => ({
-				id: choice.protocol,
-				label: choice.protocol === current ? `${choice.label}  ← 当前` : choice.label,
-			})),
-			cursor,
+			[
+				{ id: "adaptive" as AnthropicThinkingProtocol, label: "开启：新版模型，发送 thinking.type=adaptive 和 output_config.effort" },
+				{ id: "legacy" as AnthropicThinkingProtocol, label: "关闭：旧版接口，发送 thinking.type=enabled 和 budget_tokens" },
+			],
+			draft.anthropicThinkingProtocol ?? "legacy",
 		);
-		if (action.type === "cancel") return;
-		const choice = choices.find((candidate) => candidate.protocol === action.id);
-		if (choice) draft.anthropicThinkingProtocol = choice.protocol;
+		if (choice) draft.anthropicThinkingProtocol = choice.id;
 		return;
 	}
 	if (fieldId === "openAIServiceTier") {
-		const choices: Array<{ id: "disabled" | "priority"; tier: ModelDraft["openAIServiceTier"]; label: string }> = [
-			{ id: "disabled", tier: undefined, label: "关闭 — 不发送 service_tier（默认）" },
-			{ id: "priority", tier: "priority", label: "开启 — service_tier=priority，可能消耗 Fast / priority 额度" },
-		];
-		const current = draft.openAIServiceTier === "priority" ? "priority" : "disabled";
-		const cursor: MenuCursor = { index: choices.findIndex((choice) => choice.id === current) };
-		const action = await showPersistentMenu(
+		const choice = await showOptionPicker(
 			ctx,
 			"Fast mode",
-			"↑↓ 移动 · Enter 选择 · Esc 返回",
-			choices.map((choice) => ({
-				id: choice.id,
-				label: choice.id === current ? `${choice.label}  ← 当前` : choice.label,
-			})),
-			cursor,
+			[
+				{ id: "disabled", tier: undefined, label: "关闭 — 不发送 service_tier（默认）" },
+				{ id: "priority", tier: "priority", label: "开启 — service_tier=priority，可能消耗 Fast / priority 额度" },
+			] as const satisfies readonly { id: string; tier: ModelDraft["openAIServiceTier"]; label: string }[],
+			draft.openAIServiceTier === "priority" ? "priority" : "disabled",
 		);
-		if (action.type === "cancel") return;
-		const choice = choices.find((candidate) => candidate.id === action.id);
 		if (choice) draft.openAIServiceTier = choice.tier;
 		return;
 	}
@@ -322,11 +275,14 @@ export async function editModel(
 	}
 	const cursor: MenuCursor = { index: 0 };
 	while (true) {
-		const rows = buildRows(draft);
-		const menuRows = rows.map((row) => ({
+		// [喵喵喵]: 字段行的排版在开关切换后要原样重建，抽成函数避免两处写法飘移。
+		const toMenuRows = (fieldRows: FieldRow[]) => fieldRows.map((row) => ({
 			id: row.id,
 			label: `${padLabel(row.label, 16)}${row.value}`,
+			adjustable: row.adjustable,
 		}));
+		const rows = buildRows(draft);
+		const menuRows = toMenuRows(rows);
 		const action = await showPersistentFormMenu(
 			ctx,
 			titlePrefix,
@@ -334,20 +290,25 @@ export async function editModel(
 			menuRows,
 			cursor,
 			{
-				adjustableRowIds: getAdjustableRowIds(draft),
 				summaryLines: [
 					`接入 ${draft.providerId} · API ${formatApiShort(draft.api)}`,
 					"Ctrl+S 保存并启用模型；不切换当前会话模型",
 				],
-				footer: "↑↓ 选择   ←→ 切换选项   Enter 编辑   Ctrl+S 保存并启用   Esc 返回",
+				onAdjust: (id) => {
+					if (!applyHorizontalToggle(draft, id)) return undefined;
+					return toMenuRows(buildRows(draft));
+				},
+				hints: [
+					{ key: "↑↓", label: "选择" },
+					{ key: "←→", label: "切换选项" },
+					{ key: "Enter", label: "编辑" },
+					{ key: "Ctrl+S", label: "保存并启用" },
+					{ key: "Esc", label: "返回" },
+				],
 			},
 		);
 		if (action.type === "cancel") return { action: "cancel" };
 		if (action.type === "save") return { action: "save", draft };
-		if (action.type === "adjust") {
-			applyHorizontalToggle(draft, action.id, action.direction);
-			continue;
-		}
 		await editField(ctx, draft, action.id, requestHeaderProfiles, clientHeaderCaptures);
 	}
 }

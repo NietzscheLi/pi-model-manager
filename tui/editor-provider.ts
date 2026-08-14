@@ -7,8 +7,9 @@ import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { hasStringRecordEntries } from "../common.ts";
 import { switchProviderDraftApiPreset } from "../presets/providers.ts";
 import { redactUrlForDisplay } from "../sensitive-redaction.ts";
+import { resolveRuntimeBaseUrl } from "../runtime-base-url.ts";
 import { DEFAULT_PROVIDER_HTTP_PROXY_URL } from "../types.ts";
-import { showPersistentFormMenu, padLabel, type HorizontalDirection, type MenuCursor } from "./persistent-menu.ts";
+import { showOptionPicker, showPersistentFormMenu, padLabel, type MenuCursor } from "./persistent-menu.ts";
 import {
 	API_CHOICES,
 	BUILT_IN_PROFILE_CHOICES,
@@ -22,6 +23,8 @@ interface FieldRow {
 	id: string;
 	label: string;
 	value: string;
+	// 开关类字段可用 ←→ 就地切换；其余字段需要 Enter 进入输入或选择器。
+	adjustable?: boolean;
 }
 
 function buildRows(
@@ -39,7 +42,7 @@ function buildRows(
 		{ id: "providerId", label: "接入 ID（必填）", value: draft.providerId || "<必填>" },
 		{ id: "providerName", label: "名称", value: draft.providerName || "<空>" },
 		{ id: "baseUrl", label: "Base URL", value: draft.baseUrl },
-		{ id: "httpProxyEnabled", label: "本机代理", value: draft.httpProxyEnabled ? "开启" : "关闭" },
+		{ id: "httpProxyEnabled", label: "本机代理", value: draft.httpProxyEnabled ? "开启" : "关闭", adjustable: true },
 		{ id: "httpProxyUrl", label: "代理地址", value: draft.httpProxyEnabled ? redactUrlForDisplay(draft.httpProxyUrl || DEFAULT_PROVIDER_HTTP_PROXY_URL) : "关闭时不使用" },
 		{ id: "apiKey", label: "API key", value: maskSecret(draft.apiKey) },
 		{ id: "authHeader", label: "认证头", value: draft.authHeader ? "Bearer" : "默认" },
@@ -47,29 +50,12 @@ function buildRows(
 	];
 }
 
-async function selectChoice<T extends { id: string; label: string }>(
-	ctx: ExtensionCommandContext,
-	title: string,
-	choices: T[],
-	currentId: string,
-): Promise<T | undefined> {
-	const labels = choices.map((c) => c.id === currentId ? `${c.label}  ← 当前` : c.label);
-	const picked = await ctx.ui.select(title, labels);
-	if (!picked) return undefined;
-	const index = labels.indexOf(picked);
-	return index >= 0 ? choices[index] : undefined;
-}
 
-function cycleSwitchState(current: boolean, direction: HorizontalDirection): boolean {
-	const states = [false, true];
-	const currentIndex = current ? 1 : 0;
-	const delta = direction === "right" ? 1 : -1;
-	return states[(currentIndex + delta + states.length) % states.length]!;
-}
 
-function applyHorizontalToggle(draft: ProviderDraft, fieldId: string, direction: HorizontalDirection): boolean {
+// 开关字段在两个方向上都是取反，因此不看 direction；返回是否真的切换了字段。
+function applyHorizontalToggle(draft: ProviderDraft, fieldId: string): boolean {
 	if (fieldId !== "httpProxyEnabled") return false;
-	draft.httpProxyEnabled = cycleSwitchState(draft.httpProxyEnabled, direction);
+	draft.httpProxyEnabled = !draft.httpProxyEnabled;
 	if (draft.httpProxyEnabled && !draft.httpProxyUrl.trim()) draft.httpProxyUrl = DEFAULT_PROVIDER_HTTP_PROXY_URL;
 	return true;
 }
@@ -80,22 +66,18 @@ async function editClientHeaderProfile(
 	requestHeaderProfiles: Record<string, StoredRequestHeaderProfile>,
 ): Promise<void> {
 	const choices = [
-		...BUILT_IN_PROFILE_CHOICES.map((choice) => ({
-			id: choice.id,
-			label: draft.clientHeaderProfile === choice.id ? `${choice.label}  ← 当前` : choice.label,
-		})),
+		...BUILT_IN_PROFILE_CHOICES.map((choice) => ({ id: choice.id as string, label: choice.label })),
 		...Object.entries(requestHeaderProfiles)
 			.sort(([a], [b]) => a.localeCompare(b))
 			.map(([profileId, profile]) => ({
 				id: `custom:${profileId}`,
-				label: draft.clientHeaderProfile === "custom" && draft.requestHeaderProfileId === profileId
-					? `自定义:${profileId} — ${profile.name}  ← 当前`
-					: `自定义:${profileId} — ${profile.name}`,
+				label: `自定义:${profileId} — ${profile.name}`,
 			})),
 	];
-	const picked = await ctx.ui.select("请求头", choices.map((choice) => choice.label));
-	if (!picked) return;
-	const choice = choices.find((candidate) => candidate.label === picked);
+	const currentId = draft.clientHeaderProfile === "custom" && draft.requestHeaderProfileId
+		? `custom:${draft.requestHeaderProfileId}`
+		: draft.clientHeaderProfile;
+	const choice = await showOptionPicker(ctx, "请求头", choices, currentId);
 	if (!choice) return;
 	if (choice.id.startsWith("custom:")) {
 		draft.clientHeaderProfile = "custom";
@@ -113,16 +95,21 @@ async function editField(
 	requestHeaderProfiles: Record<string, StoredRequestHeaderProfile>,
 ): Promise<void> {
 	if (fieldId === "api") {
-		const choice = await selectChoice(ctx, "选择 API 协议", API_CHOICES, draft.api);
+		const choice = await showOptionPicker(ctx, "选择 API 协议", API_CHOICES, draft.api);
 		if (choice) switchProviderDraftApiPreset(draft, choice.id);
 		return;
 	}
 	if (fieldId === "authHeader") {
-		const choice = await ctx.ui.select("认证头（API key 放在哪里）", [
-			"默认 — 交给协议 SDK / 接入默认行为",
-			"Bearer — 强制 Authorization: Bearer <apiKey>",
-		]);
-		if (choice) draft.authHeader = choice.startsWith("Bearer");
+		const choice = await showOptionPicker(
+			ctx,
+			"认证头（API key 放在哪里）",
+			[
+				{ id: "default", label: "默认 — 交给协议 SDK / 接入默认行为" },
+				{ id: "bearer", label: "Bearer — 强制 Authorization: Bearer <apiKey>" },
+			],
+			draft.authHeader ? "bearer" : "default",
+		);
+		if (choice) draft.authHeader = choice.id === "bearer";
 		return;
 	}
 	if (fieldId === "clientHeaderProfile") {
@@ -130,12 +117,17 @@ async function editField(
 		return;
 	}
 	if (fieldId === "httpProxyEnabled") {
-		const choice = await ctx.ui.select("本机代理（仅当前接入点）", [
-			"关闭 — 请求直连上游",
-			`开启 — 通过 ${redactUrlForDisplay(draft.httpProxyUrl || DEFAULT_PROVIDER_HTTP_PROXY_URL)}`,
-		]);
+		const choice = await showOptionPicker(
+			ctx,
+			"本机代理（仅当前接入点）",
+			[
+				{ id: "disabled", label: "关闭 — 请求直连上游" },
+				{ id: "enabled", label: `开启 — 通过 ${redactUrlForDisplay(draft.httpProxyUrl || DEFAULT_PROVIDER_HTTP_PROXY_URL)}` },
+			],
+			draft.httpProxyEnabled ? "enabled" : "disabled",
+		);
 		if (!choice) return;
-		draft.httpProxyEnabled = choice.startsWith("开启");
+		draft.httpProxyEnabled = choice.id === "enabled";
 		if (draft.httpProxyEnabled && !draft.httpProxyUrl.trim()) draft.httpProxyUrl = DEFAULT_PROVIDER_HTTP_PROXY_URL;
 		return;
 	}
@@ -165,15 +157,15 @@ async function editField(
 		draft.apiKey = value.trim();
 		return;
 	}
-	const prompt = ({
-		baseUrl: "Base URL（http/https）",
-	} as Record<string, string>)[fieldId];
-	const current = (draft as any)[fieldId] as string;
-	const value = await ctx.ui.input(`${prompt ?? fieldId}（当前：${current || "<空>"}，留空保持原值）`, current);
+	// [喵喵喵]: baseUrl 是唯一走通用文本输入的字段，显式列出才能保持 draft 的类型检查。
+	if (fieldId !== "baseUrl") return;
+	const value = await ctx.ui.input(`Base URL（http/https）（当前：${draft.baseUrl || "<空>"}，留空保持原值）`, draft.baseUrl);
 	if (value === undefined) return;
 	const trimmed = value.trim();
 	if (!trimmed) return;
-	(draft as any)[fieldId] = trimmed;
+	// [喵喵喵]: 当场归一化成 SDK 可直接使用的根地址，让 models.json 存的就是最终请求地址；
+	// 否则插件未加载时 pi 会用未补全的值直接请求，补全结果也无法在界面上核对。
+	draft.baseUrl = resolveRuntimeBaseUrl(draft.api, trimmed);
 }
 
 export type ProviderEditOutcome =
@@ -188,11 +180,14 @@ export async function editProvider(
 ): Promise<ProviderEditOutcome> {
 	const cursor: MenuCursor = { index: 0 };
 	while (true) {
-		const rows = buildRows(draft, requestHeaderProfiles);
-		const menuRows = rows.map((r) => ({
-			id: r.id,
-			label: `${padLabel(r.label, 16)}${r.value}`,
+		// [喵喵喵]: 字段行的排版在开关切换后要原样重建，抽成函数避免两处写法飘移。
+		const toMenuRows = (fieldRows: FieldRow[]) => fieldRows.map((row) => ({
+			id: row.id,
+			label: `${padLabel(row.label, 16)}${row.value}`,
+			adjustable: row.adjustable,
 		}));
+		const rows = buildRows(draft, requestHeaderProfiles);
+		const menuRows = toMenuRows(rows);
 		const action = await showPersistentFormMenu(
 			ctx,
 			titlePrefix,
@@ -200,21 +195,26 @@ export async function editProvider(
 			menuRows,
 			cursor,
 			{
-				adjustableRowIds: ["httpProxyEnabled"],
 				summaryLines: [
 					`API ${formatApiShort(draft.api)} · 请求头 ${describeProfile(draft.clientHeaderProfile, draft.api, draft.requestHeaderProfileId, requestHeaderProfiles)}`,
 					"接入 ID 必填，且不能与已有或 pi 内置接入重复",
 					"Ctrl+S 保存并同步 models.json；不切换当前会话模型",
 				],
-				footer: "↑↓ 选择   ←→ 切换选项   Enter 编辑   Ctrl+S 保存并同步   Esc 返回",
+				onAdjust: (id) => {
+					if (!applyHorizontalToggle(draft, id)) return undefined;
+					return toMenuRows(buildRows(draft, requestHeaderProfiles));
+				},
+				hints: [
+					{ key: "↑↓", label: "选择" },
+					{ key: "←→", label: "切换选项" },
+					{ key: "Enter", label: "编辑" },
+					{ key: "Ctrl+S", label: "保存并同步" },
+					{ key: "Esc", label: "返回" },
+				],
 			},
 		);
 		if (action.type === "cancel") return { action: "cancel" };
 		if (action.type === "save") return { action: "save", draft };
-		if (action.type === "adjust") {
-			applyHorizontalToggle(draft, action.id, action.direction);
-			continue;
-		}
 		await editField(ctx, draft, action.id, requestHeaderProfiles);
 	}
 }

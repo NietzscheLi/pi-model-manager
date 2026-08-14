@@ -4,6 +4,7 @@
 
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { CURSOR_MARKER, Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
+import { padLabel } from "./persistent-menu.ts";
 
 const MODEL_PAGE_SIZE = 8;
 const EXACT_MATCH_SCORE = 50_000;
@@ -227,7 +228,7 @@ export async function pickModelIdFromList(
 				selectedIndex = clampSelectedIndex(selectedIndex, matchedModelIds.length);
 				const pageStart = getPageStart(selectedIndex);
 				const visibleModelIds = matchedModelIds.slice(pageStart, pageStart + MODEL_PAGE_SIZE);
-				const border = theme.fg("borderMuted", "─".repeat(Math.max(0, Math.min(width, 100))));
+				const border = theme.fg("borderMuted", "─".repeat(Math.max(0, width)));
 				const queryCursor = focused ? `${CURSOR_MARKER}${theme.fg("accent", "▌")}` : "";
 				const searchLine = searchText
 					? `${theme.fg("muted", "搜索: ")}${searchText}${queryCursor}`
@@ -249,8 +250,9 @@ export async function pickModelIdFromList(
 						const selected = absoluteIndex === selectedIndex;
 						const currentSuffix = modelId === normalizedCurrentModelId ? theme.fg("dim", "  ← 当前") : "";
 						const prefix = selected ? "❯ " : "  ";
-						const rowText = `${prefix}${modelId}${currentSuffix}`;
-						lines.push(selected ? theme.fg("accent", rowText) : rowText);
+						const rowText = truncateToWidth(`${prefix}${modelId}${currentSuffix}`, width);
+						// [喵喵喵]: 与列表菜单用同一种选中表现（背景色），避免两套选择器手感不一致。
+						lines.push(selected ? theme.bg("selectedBg", padLabel(rowText, width)) : rowText);
 					}
 				}
 

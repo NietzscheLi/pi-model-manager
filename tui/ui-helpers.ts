@@ -20,6 +20,7 @@ import type {
 	StoredProvider,
 	StoredRequestHeaderProfile,
 } from "../types.ts";
+import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
 
 export function maskSecret(value: string | undefined): string {
 	if (!value) return "<未填写>";
@@ -39,6 +40,7 @@ interface FixedColumn {
 	text: string;
 	width: number;
 	align?: ColumnAlign;
+	color?: ThemeColor;
 }
 
 export function fitColumn(text: string, columns: number, align: ColumnAlign = "left"): string {
@@ -47,8 +49,15 @@ export function fitColumn(text: string, columns: number, align: ColumnAlign = "l
 	return align === "right" ? pad + clipped : clipped + pad;
 }
 
-function joinFixedColumns(columns: readonly FixedColumn[], gap = "  "): string {
-	return columns.map((column) => fitColumn(column.text, column.width, column.align)).join(gap).trimEnd();
+// [喵喵喵]: 先按纯文本对齐再着色；反过来会让列宽计算受 ANSI 序列干扰。
+function joinFixedColumns(columns: readonly FixedColumn[], theme?: Theme, gap = "  "): string {
+	return columns
+		.map((column) => {
+			const cell = fitColumn(column.text, column.width, column.align);
+			return theme && column.color ? theme.fg(column.color, cell) : cell;
+		})
+		.join(gap)
+		.trimEnd();
 }
 
 function formatTableHeader(line: string): string {
@@ -111,45 +120,45 @@ interface ProviderConsoleCells {
 	status: string;
 }
 
-function getProviderConsoleColumns(cells: ProviderConsoleCells, availableWidth: number): FixedColumn[] {
-	if (availableWidth >= 81) {
-		return [
-			{ text: cells.provider, width: 22 },
-			{ text: cells.api, width: 9 },
-			{ text: cells.models, width: 6, align: "right" },
-			{ text: cells.headers, width: 15 },
-			{ text: cells.proxy, width: 6 },
-			{ text: cells.auth, width: 6 },
-			{ text: cells.status, width: 5 },
-		];
-	}
-	if (availableWidth >= 64) {
-		return [
-			{ text: cells.provider, width: 20 },
-			{ text: cells.api, width: 9 },
-			{ text: cells.models, width: 6, align: "right" },
-			{ text: cells.proxy, width: 6 },
-			{ text: cells.auth, width: 6 },
-			{ text: cells.status, width: 5 },
-		];
-	}
-	if (availableWidth >= 48) {
-		return [
-			{ text: cells.provider, width: 20 },
-			{ text: cells.api, width: 9 },
-			{ text: cells.models, width: 6, align: "right" },
-			{ text: cells.status, width: 5 },
-		];
-	}
-	return [
-		{ text: cells.provider, width: Math.max(10, availableWidth - 26) },
-		{ text: cells.api, width: 9 },
-		{ text: cells.models, width: 6, align: "right" },
-		{ text: cells.status, width: 5 },
-	];
+export interface ProviderTableOptions {
+	requestHeaderProfiles?: Record<string, StoredRequestHeaderProfile>;
+	theme?: Theme;
+	// 按当前数据收敛后的接入列宽；表头与数据行必须传同一个值才能对齐。
+	nameWidth?: number;
 }
 
-export function formatProviderConsoleHeader(menuWidth: number): string {
+const PROVIDER_NAME_COLUMN_LIMIT = 22;
+const PROVIDER_NAME_COLUMN_MIN = 12;
+
+export function getProviderDisplayLabel(providerId: string, provider: StoredProvider): string {
+	const name = getProviderDisplayName(providerId, provider);
+	return name === providerId ? providerId : `${name} (${providerId})`;
+}
+
+export function getProviderNameColumnWidth(displayLabels: readonly string[]): number {
+	const longest = displayLabels.reduce((max, label) => Math.max(max, visibleWidth(label)), 0);
+	return Math.min(PROVIDER_NAME_COLUMN_LIMIT, Math.max(PROVIDER_NAME_COLUMN_MIN, longest));
+}
+
+function getAuthColor(auth: string): ThemeColor | undefined {
+	return auth === "miss" || auth === "auth?" ? "warning" : undefined;
+}
+
+function getProviderConsoleColumns(cells: ProviderConsoleCells, availableWidth: number, nameWidth: number): FixedColumn[] {
+	const provider: FixedColumn = { text: cells.provider, width: Math.min(nameWidth, PROVIDER_NAME_COLUMN_LIMIT) };
+	const api: FixedColumn = { text: cells.api, width: 9 };
+	const models: FixedColumn = { text: cells.models, width: 6, align: "right" };
+	const headers: FixedColumn = { text: cells.headers, width: 15, color: cells.headers === "Off" ? "dim" : undefined };
+	const proxy: FixedColumn = { text: cells.proxy, width: 6, color: cells.proxy === "proxy" ? "accent" : "dim" };
+	const auth: FixedColumn = { text: cells.auth, width: 6, color: getAuthColor(cells.auth) };
+	const status: FixedColumn = { text: cells.status, width: 5, color: cells.status === "ready" ? "success" : "warning" };
+	if (availableWidth >= 81) return [provider, api, models, headers, proxy, auth, status];
+	if (availableWidth >= 64) return [provider, api, models, proxy, auth, status];
+	if (availableWidth >= 48) return [provider, api, models, status];
+	return [{ ...provider, width: Math.max(10, availableWidth - 26) }, api, models, status];
+}
+
+export function formatProviderConsoleHeader(menuWidth: number, options: ProviderTableOptions = {}): string {
 	return formatTableHeader(joinFixedColumns(getProviderConsoleColumns({
 		provider: "接入",
 		api: "API",
@@ -158,42 +167,52 @@ export function formatProviderConsoleHeader(menuWidth: number): string {
 		proxy: "代理",
 		auth: "认证",
 		status: "状态",
-	}, Math.max(0, menuWidth - 2))));
+	}, Math.max(0, menuWidth - 2), options.nameWidth ?? PROVIDER_NAME_COLUMN_LIMIT)));
 }
 
 export function formatProviderConsoleRow(
 	providerId: string,
 	provider: StoredProvider,
-	requestHeaderProfiles: Record<string, StoredRequestHeaderProfile> = {},
 	availableWidth = 81,
+	options: ProviderTableOptions = {},
 ): string {
-	const name = getProviderDisplayName(providerId, provider);
-	const displayName = name === providerId ? providerId : `${name} (${providerId})`;
 	return joinFixedColumns(getProviderConsoleColumns({
-		provider: displayName,
+		provider: getProviderDisplayLabel(providerId, provider),
 		api: formatApiShort(provider.api),
 		models: String(provider.models.length),
-		headers: formatProviderHeaderProfile(provider, requestHeaderProfiles),
+		headers: formatProviderHeaderProfile(provider, options.requestHeaderProfiles ?? {}),
 		proxy: getProviderProxyText(provider),
 		auth: getAuthKind(provider.apiKey),
 		status: getProviderStatus(provider),
-	}, availableWidth));
+	}, availableWidth, options.nameWidth ?? PROVIDER_NAME_COLUMN_LIMIT), options.theme);
+}
+
+// [喵喵喵]: 详情区分三级（标题/字段名/值），否则整块同一灰度无法扫读；
+// 缩进与标签列宽必须在所有面板一致，否则切面板时详情区会跳动。
+const DETAIL_LABEL_WIDTH = 10;
+
+export function formatDetailTitle(title: string, theme?: Theme): string {
+	return theme ? theme.fg("text", title) : title;
+}
+
+export function formatDetailField(label: string, value: string, theme?: Theme): string {
+	const labelCell = `  ${fitColumn(label, DETAIL_LABEL_WIDTH)}`;
+	return theme ? `${theme.fg("dim", labelCell)}${theme.fg("text", value)}` : `${labelCell}${value}`;
 }
 
 export function formatProviderDetailLines(
 	providerId: string,
 	provider: StoredProvider,
-	requestHeaderProfiles: Record<string, StoredRequestHeaderProfile> = {},
+	options: ProviderTableOptions = {},
 ): string[] {
-	const name = getProviderDisplayName(providerId, provider);
-	const title = name === providerId ? providerId : `${name} (${providerId})`;
+	const { theme, requestHeaderProfiles = {} } = options;
 	const modelIds = provider.models.map((model) => model.id).join(", ") || "<无模型>";
 	return [
-		title,
-		`  endpoint  ${redactUrlForDisplay(provider.baseUrl)}`,
-		`  proxy     ${provider.httpProxyEnabled ? redactUrlForDisplay(provider.httpProxyUrl ?? "http://127.0.0.1:7890") : "direct"}`,
-		`  api       ${formatApiShort(provider.api)} · headers ${formatProviderHeaderProfile(provider, requestHeaderProfiles)} · auth ${getAuthKind(provider.apiKey)}`,
-		`  models    ${modelIds}`,
+		formatDetailTitle(getProviderDisplayLabel(providerId, provider), theme),
+		formatDetailField("endpoint", redactUrlForDisplay(provider.baseUrl), theme),
+		formatDetailField("proxy", provider.httpProxyEnabled ? redactUrlForDisplay(provider.httpProxyUrl ?? "http://127.0.0.1:7890") : "direct", theme),
+		formatDetailField("api", `${formatApiShort(provider.api)} · headers ${formatProviderHeaderProfile(provider, requestHeaderProfiles)} · auth ${getAuthKind(provider.apiKey)}`, theme),
+		formatDetailField("models", modelIds, theme),
 	];
 }
 
@@ -231,42 +250,73 @@ interface ModelListCells {
 	fast: string;
 }
 
-function getModelListColumns(provider: StoredProvider, cells: ModelListCells, availableWidth: number): FixedColumn[] {
+export interface ModelTableOptions {
+	theme?: Theme;
+	// 按当前数据收敛后的列宽；表头与数据行必须传同一组值才能对齐。
+	modelIdWidth?: number;
+	nameWidth?: number;
+}
+
+const MODEL_ID_COLUMN_LIMIT = 30;
+const MODEL_ID_COLUMN_MIN = 14;
+const MODEL_NAME_COLUMN_LIMIT = 16;
+const MODEL_NAME_COLUMN_MIN = 8;
+
+export function getModelColumnWidths(models: readonly StoredModel[]): Required<Pick<ModelTableOptions, "modelIdWidth" | "nameWidth">> {
+	let longestId = 0;
+	let longestName = 0;
+	for (const model of models) {
+		longestId = Math.max(longestId, visibleWidth(model.id));
+		longestName = Math.max(longestName, visibleWidth(formatModelNameCell(model)));
+	}
+	return {
+		modelIdWidth: Math.min(MODEL_ID_COLUMN_LIMIT, Math.max(MODEL_ID_COLUMN_MIN, longestId)),
+		nameWidth: Math.min(MODEL_NAME_COLUMN_LIMIT, Math.max(MODEL_NAME_COLUMN_MIN, longestName)),
+	};
+}
+
+function getModelListColumns(
+	provider: StoredProvider,
+	cells: ModelListCells,
+	availableWidth: number,
+	options: ModelTableOptions,
+): FixedColumn[] {
+	const modelIdWidth = options.modelIdWidth ?? MODEL_ID_COLUMN_LIMIT;
+	const nameWidth = options.nameWidth ?? MODEL_NAME_COLUMN_LIMIT;
+	const name: FixedColumn = { text: cells.name, width: nameWidth, color: cells.name === "默认" ? "dim" : undefined };
+	const input: FixedColumn = { text: cells.input, width: 10, color: cells.input.includes("视觉") ? "accent" : undefined };
+	const thinking: FixedColumn = { text: cells.thinking, width: 8, color: cells.thinking === "开" ? "accent" : cells.thinking === "关" ? "dim" : undefined };
+	const context: FixedColumn = { text: cells.context, width: 7, align: "right" };
+	const output: FixedColumn = { text: cells.output, width: 7, align: "right" };
+	// [喵喵喵]: priority 会消耗 Fast 额度，用 warning 提醒而不是当普通开关。
+	const fast: FixedColumn = { text: cells.fast, width: 8, color: cells.fast === "priority" ? "warning" : cells.fast === "off" ? "dim" : undefined };
+
 	const fullWidth = provider.api === "openai-responses" ? 98 : 88;
 	if (availableWidth >= fullWidth) {
 		const columns: FixedColumn[] = [
-			{ text: cells.modelId, width: 30 },
-			{ text: cells.name, width: 16 },
-			{ text: cells.input, width: 10 },
-			{ text: cells.thinking, width: 8 },
-			{ text: cells.context, width: 7, align: "right" },
-			{ text: cells.output, width: 7, align: "right" },
+			{ text: cells.modelId, width: Math.min(modelIdWidth, 30) },
+			{ ...name, width: Math.min(nameWidth, 16) },
+			input,
+			thinking,
+			context,
+			output,
 		];
-		if (provider.api === "openai-responses") columns.push({ text: cells.fast, width: 8 });
+		if (provider.api === "openai-responses") columns.push(fast);
 		return columns;
 	}
 	if (availableWidth >= 75) {
 		return [
-			{ text: cells.modelId, width: 28 },
-			{ text: cells.name, width: 14 },
-			{ text: cells.input, width: 10 },
-			{ text: cells.thinking, width: 8 },
-			{ text: cells.context, width: 7, align: "right" },
+			{ text: cells.modelId, width: Math.min(modelIdWidth, 28) },
+			{ ...name, width: Math.min(nameWidth, 14) },
+			input,
+			thinking,
+			context,
 		];
 	}
 	if (availableWidth >= 57) {
-		return [
-			{ text: cells.modelId, width: 26 },
-			{ text: cells.input, width: 10 },
-			{ text: cells.thinking, width: 8 },
-			{ text: cells.context, width: 7, align: "right" },
-		];
+		return [{ text: cells.modelId, width: Math.min(modelIdWidth, 26) }, input, thinking, context];
 	}
-	return [
-		{ text: cells.modelId, width: Math.max(10, availableWidth - 22) },
-		{ text: cells.input, width: 10 },
-		{ text: cells.thinking, width: 8 },
-	];
+	return [{ text: cells.modelId, width: Math.max(10, availableWidth - 22) }, input, thinking];
 }
 
 function getModelListCells(model?: StoredModel): ModelListCells {
@@ -291,12 +341,17 @@ function getModelListCells(model?: StoredModel): ModelListCells {
 		};
 }
 
-export function formatModelListHeader(provider: StoredProvider, menuWidth = 100): string {
-	return formatTableHeader(joinFixedColumns(getModelListColumns(provider, getModelListCells(), Math.max(0, menuWidth - 2))));
+export function formatModelListHeader(provider: StoredProvider, menuWidth = 100, options: ModelTableOptions = {}): string {
+	return formatTableHeader(joinFixedColumns(getModelListColumns(provider, getModelListCells(), Math.max(0, menuWidth - 2), options)));
 }
 
-export function formatModelListRow(provider: StoredProvider, model: StoredModel, availableWidth = 98): string {
-	return joinFixedColumns(getModelListColumns(provider, getModelListCells(model), availableWidth));
+export function formatModelListRow(
+	provider: StoredProvider,
+	model: StoredModel,
+	availableWidth = 98,
+	options: ModelTableOptions = {},
+): string {
+	return joinFixedColumns(getModelListColumns(provider, getModelListCells(model), availableWidth, options), options.theme);
 }
 
 export const API_CHOICES: { id: ApiKind; label: string }[] = [
@@ -327,13 +382,14 @@ export function describeProfile(
 
 export const VISION_INPUT_CHOICES: { enabled: boolean; kinds: ModelInputKind[]; label: string }[] = [
 	{ enabled: false, kinds: ["text"], label: "关闭 — 仅文本输入" },
-	{ enabled: true, kinds: ["text", "image"], label: "开启 — 支持视觉（文本 + 图片）" },
+	{ enabled: true, kinds: ["text", "image"], label: "开启 — 文本 + 图片输入" },
 ];
 
 export function supportsVisionInput(kinds: ModelInputKind[]): boolean {
 	return kinds.includes("image");
 }
 
+// 字段名已经说明了含义，值只需要跟 Thinking / Fast mode 一样给出开关状态。
 export function describeVisionInput(kinds: ModelInputKind[]): string {
-	return supportsVisionInput(kinds) ? "开启 · 支持视觉" : "关闭 · 仅文本";
+	return supportsVisionInput(kinds) ? "开启" : "关闭";
 }

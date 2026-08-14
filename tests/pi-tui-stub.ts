@@ -13,6 +13,7 @@ export const Key = {
 	home: "<HOME>",
 	end: "<END>",
 	enter: "<ENTER>",
+	tab: "<TAB>",
 	ctrl: (key: string) => `<CTRL_${key}>`,
 } as const;
 

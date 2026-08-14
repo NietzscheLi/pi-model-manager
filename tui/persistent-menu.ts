@@ -6,28 +6,41 @@
 // 设计：列表页保留 KISS 的键盘模型，同时支持摘要、列头、详情区、底部快捷键。
 // 表单页另有 Ctrl+S 保存；列表页可注册单键快捷操作，并用 / 做轻量过滤。
 
-import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
 import { CURSOR_MARKER, Key, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
 export interface MenuRow {
 	id: string;
 	label: string;
-	description?: string | readonly string[];
+	// [喵喵喵]: label 是按列宽截断后的表格文本，长 ID 的后半段不在其中；
+	// 需要按真实标识搜索的调用方必须显式提供未截断的 searchText。
+	searchText?: string;
+	// [喵喵喵]: 可调整性属于行自身；开关切换会让字段集变化（如开 Thinking 后才出现 Adaptive 行），
+	// 放在外部集合里就会在行重建后与实际行脱节，新出现的开关行按 ←→ 没反应。
+	adjustable?: boolean;
+}
+
+// 底部快捷键提示；key 与说明分开才能分别着色，并在窄终端按项折行而不是被截掉。
+export interface MenuHint {
+	key: string;
+	label: string;
 }
 
 export interface PersistentMenuOptions {
 	summaryLines?: readonly string[];
-	tableHeader?: string | ((width: number) => string);
-	formatRow?: (row: MenuRow, width: number) => string;
-	getDetailLines?: (selectedRow: MenuRow | undefined) => readonly string[];
-	footer?: string;
+	// [喵喵喵]: 渲染回调拿到 theme 才能给列与详情上语义色；theme 只存在于 custom 回调作用域。
+	tableHeader?: string | ((width: number, theme: Theme) => string);
+	formatRow?: (row: MenuRow, width: number, theme: Theme) => string;
+	getDetailLines?: (selectedRow: MenuRow | undefined, theme: Theme) => readonly string[];
+	hints?: readonly MenuHint[];
 	emptyLabel?: string;
 	visibleRows?: number;
 	searchable?: boolean;
 }
 
 export interface PersistentFormMenuOptions extends PersistentMenuOptions {
-	adjustableRowIds?: readonly string[];
+	// 就地切换该字段并返回重建后的行；返回 undefined 则忽略本次按键。
+	onAdjust?: (id: string, direction: HorizontalDirection) => MenuRow[] | undefined;
 }
 
 export type MenuAction =
@@ -35,7 +48,8 @@ export type MenuAction =
 	| { type: "cancel" };
 
 export type HorizontalDirection = "left" | "right";
-export type FormMenuAction = MenuAction | { type: "save" } | { type: "adjust"; id: string; direction: HorizontalDirection };
+// 横向切换已改为组件内处理，不再作为外部动作返回。
+export type FormMenuAction = MenuAction | { type: "save" };
 
 export type ShortcutMenuAction<TShortcut extends string = string> = MenuAction | { type: "shortcut"; shortcut: TShortcut };
 
@@ -62,13 +76,52 @@ export function padLabel(label: string, columns: number): string {
 	return padToVisibleWidth(label, columns);
 }
 
-function getDescriptionLines(row: MenuRow): string[] {
-	const source = row.description;
-	return typeof source === "string" ? source.split("\n") : [...(source ?? [])];
+function getSearchText(row: MenuRow): string {
+	return (row.searchText ?? `${row.id}\n${row.label}`).toLocaleLowerCase();
 }
 
-function getSearchText(row: MenuRow): string {
-	return [row.id, row.label, ...getDescriptionLines(row)].join("\n").toLocaleLowerCase();
+const HINT_GAP = "   ";
+
+// 按项贪心排版：单行装不下就换行，保证窄终端下 Esc 等尾部提示不会被 truncate 丢失。
+function layoutHintLines(hints: readonly MenuHint[], theme: Theme, width: number): string[] {
+	const lines: string[] = [];
+	let currentText = "";
+	let currentWidth = 0;
+	for (const hint of hints) {
+		const hintWidth = visibleWidth(`${hint.key} ${hint.label}`);
+		const styled = `${theme.fg("accent", hint.key)} ${theme.fg("dim", hint.label)}`;
+		if (!currentText) {
+			currentText = styled;
+			currentWidth = hintWidth;
+			continue;
+		}
+		if (currentWidth + HINT_GAP.length + hintWidth > width) {
+			lines.push(currentText);
+			currentText = styled;
+			currentWidth = hintWidth;
+			continue;
+		}
+		currentText += `${HINT_GAP}${styled}`;
+		currentWidth += HINT_GAP.length + hintWidth;
+	}
+	if (currentText) lines.push(currentText);
+	return lines;
+}
+
+// 滚动条字符在不同终端的宽度属于 ambiguous，因此固定预留 2 列，宁可多一个空格也不让行溢出。
+const SCROLLBAR_WIDTH = 2;
+
+// pi 在菜单下方还要渲染输入框与状态行，不预留就会把菜单底部的快捷键提示顶出屏幕。
+const RESERVED_TERMINAL_ROWS = 3;
+// 小于这个高度就无法同时容纳边框、标题、提示和列表，此时宁可溢出也不再继续压缩。
+const MIN_MENU_ROWS = 8;
+const MIN_LIST_ROWS = 1;
+
+function getScrollbarGlyph(rowOffset: number, viewportRows: number, windowStart: number, totalRows: number): string {
+	const thumbRows = Math.max(1, Math.round((viewportRows * viewportRows) / totalRows));
+	const maxWindowStart = Math.max(1, totalRows - viewportRows);
+	const thumbStart = Math.round((windowStart / maxWindowStart) * (viewportRows - thumbRows));
+	return rowOffset >= thumbStart && rowOffset < thumbStart + thumbRows ? "█" : "│";
 }
 
 function filterRows(rows: MenuRow[], query: string): MenuRow[] {
@@ -115,8 +168,10 @@ function createPersistentMenu<TAction extends MenuAction | FormMenuAction | Shor
 	cursor: MenuCursor,
 	createSaveAction: (() => TAction) | undefined,
 	shortcuts: MenuShortcut[],
-	createAdjustAction: ((id: string, direction: HorizontalDirection) => TAction) | undefined = undefined,
-	adjustableRowIds: ReadonlySet<string> = new Set(),
+	// [喵喵喵]: 横向切换是纯本地状态变更，必须在组件内完成。早期实现用 done() 结束组件再由
+	// 调用方重开，每按一次方向键都会销毁重建整个 TUI，在终端上表现为闪烁。
+	// 回调就地改写草稿并返回新行，返回 undefined 表示本次不可调整。
+	onAdjust: ((id: string, direction: HorizontalDirection) => MenuRow[] | undefined) | undefined = undefined,
 	options: PersistentMenuOptions = {},
 ): Promise<TAction> {
 	cursor.index = clampIndex(cursor.index, rows.length);
@@ -126,14 +181,19 @@ function createPersistentMenu<TAction extends MenuAction | FormMenuAction | Shor
 		let searchQuery = "";
 		let searchCursor = 0;
 		let focused = false;
-		const visibleRows = options.visibleRows ?? 18;
+		const configuredVisibleRows = options.visibleRows ?? 18;
+		// [喵喵喵]: 真实可见行数要减去本帧的标题/摘要/详情/提示，每帧在 render 里重算，
+		// 翻页也必须用同一个值，否则矮终端上 PgUp/PgDn 会跳过看不见的行。
+		let viewportRows = configuredVisibleRows;
 		const searchable = options.searchable ?? false;
 
-		const getActiveRows = (): MenuRow[] => searchable ? filterRows(rows, searchQuery) : rows;
+		// onAdjust 会整批替换行数据，因此不能直接闭包参数 rows。
+		let currentRows = rows;
+		const getActiveRows = (): MenuRow[] => searchable ? filterRows(currentRows, searchQuery) : currentRows;
 
 		const syncCursor = (activeRows: MenuRow[]): void => {
 			const row = activeRows[selectedIndex];
-			if (row) cursor.index = rows.indexOf(row);
+			if (row) cursor.index = currentRows.indexOf(row);
 		};
 
 		const requestRender = (): void => {
@@ -148,7 +208,7 @@ function createPersistentMenu<TAction extends MenuAction | FormMenuAction | Shor
 			searchActive = false;
 			searchQuery = "";
 			searchCursor = 0;
-			selectedIndex = clampIndex(cursor.index, rows.length);
+			selectedIndex = clampIndex(cursor.index, currentRows.length);
 			requestRender();
 			return true;
 		};
@@ -175,6 +235,35 @@ function createPersistentMenu<TAction extends MenuAction | FormMenuAction | Shor
 			selectedIndex = nextIndex;
 			requestRender();
 		};
+		// 输入态显示带光标的搜索行；Tab 退出后仍需告知用户过滤仍生效。
+		const renderQueryLine = (width: number): string => {
+			if (!searchActive) {
+				return truncateToWidth(`${theme.fg("dim", "过滤：")}${searchQuery}`, width, "");
+			}
+			const cursorGlyph = focused ? `${CURSOR_MARKER}${theme.fg("accent", "▌")}` : "";
+			const searchPrefix = theme.fg("accent", "搜索：");
+			const queryWidth = Math.max(0, width - visibleWidth(searchPrefix));
+			const queryDisplay = searchQuery
+				? fitSearchQueryAroundCursor(searchQuery, searchCursor, cursorGlyph, queryWidth)
+				: `${cursorGlyph}${theme.fg("dim", "<输入关键词>")}`;
+			return truncateToWidth(`${searchPrefix}${queryDisplay}`, width, "");
+		};
+
+		const getHints = (): MenuHint[] => {
+			const hints: MenuHint[] = [...(options.hints ?? [])];
+			if (!searchable) return hints;
+			if (searchActive) hints.push({ key: "Tab", label: "保留过滤" }, { key: "Esc", label: "清空搜索" });
+			else if (searchQuery) hints.push({ key: "Tab", label: "继续输入" }, { key: "Esc", label: "清空过滤" });
+			else hints.push({ key: "/", label: "搜索" });
+			return hints;
+		};
+
+		// 终端高度未知（如测试环境）时不限制总行数，交由调用方配置的 visibleRows 控制。
+		const getRowBudget = (): number => {
+			const terminalRows = tui.terminal?.rows ?? 0;
+			if (terminalRows <= 0) return Number.POSITIVE_INFINITY;
+			return Math.max(MIN_MENU_ROWS, terminalRows - RESERVED_TERMINAL_ROWS);
+		};
 
 		return {
 			get focused(): boolean {
@@ -195,11 +284,15 @@ function createPersistentMenu<TAction extends MenuAction | FormMenuAction | Shor
 					: matchesKey(data, Key.right)
 						? "right"
 						: undefined;
-				if (horizontalDirection && createAdjustAction) {
+				if (horizontalDirection && onAdjust) {
 					const row = getActiveRows()[selectedIndex];
-					if (row && adjustableRowIds.has(row.id)) {
+					if (row?.adjustable) {
 						syncCursor(getActiveRows());
-						done(createAdjustAction(row.id, horizontalDirection));
+						const nextRows = onAdjust(row.id, horizontalDirection);
+						if (nextRows) {
+							currentRows = nextRows;
+							requestRender();
+						}
 					}
 					return;
 				}
@@ -246,6 +339,12 @@ function createPersistentMenu<TAction extends MenuAction | FormMenuAction | Shor
 						requestRender();
 						return;
 					}
+					// [喵喵喵]: Tab 只退出输入态并保留过滤结果，让用户搜到目标后还能按单字母快捷键；Esc 才清空。
+					if (matchesKey(data, Key.tab)) {
+						searchActive = false;
+						requestRender();
+						return;
+					}
 					if (matchesKey(data, Key.enter)) {
 						pickSelected();
 						return;
@@ -257,10 +356,17 @@ function createPersistentMenu<TAction extends MenuAction | FormMenuAction | Shor
 					}
 				}
 
-				const shortcut = shortcuts.find((candidate) => candidate.input === data);
+				// [喵喵喵]: 提示里快捷键显示为大写，因此 Shift 组合也必须命中同一个动作。
+				const shortcut = shortcuts.find((candidate) => candidate.input.toLowerCase() === data.toLowerCase());
 				if (shortcut) {
 					syncCursor(getActiveRows());
 					done({ type: "shortcut", shortcut: shortcut.shortcut } as TAction);
+					return;
+				}
+				if (searchable && searchQuery && matchesKey(data, Key.tab)) {
+					searchActive = true;
+					searchCursor = Array.from(searchQuery).length;
+					requestRender();
 					return;
 				}
 				if (searchable && data === "/") {
@@ -289,11 +395,11 @@ function createPersistentMenu<TAction extends MenuAction | FormMenuAction | Shor
 					return;
 				}
 				if (matchesKey(data, Key.pageUp)) {
-					moveSelection(Math.max(0, selectedIndex - visibleRows));
+					moveSelection(Math.max(0, selectedIndex - viewportRows));
 					return;
 				}
 				if (matchesKey(data, Key.pageDown)) {
-					moveSelection(Math.min(activeRows.length - 1, selectedIndex + visibleRows));
+					moveSelection(Math.min(activeRows.length - 1, selectedIndex + viewportRows));
 					return;
 				}
 				if (matchesKey(data, Key.home)) {
@@ -309,83 +415,93 @@ function createPersistentMenu<TAction extends MenuAction | FormMenuAction | Shor
 				const activeRows = getActiveRows();
 				selectedIndex = clampIndex(selectedIndex, activeRows.length);
 				syncCursor(activeRows);
-				const windowStart = Math.max(
-					0,
-					Math.min(selectedIndex - Math.floor(visibleRows / 2), Math.max(0, activeRows.length - visibleRows)),
-				);
-				const shownRows = activeRows.slice(windowStart, windowStart + visibleRows);
 
-				const border = theme.fg("borderMuted", "─".repeat(Math.max(0, Math.min(width, 100))));
-				const summaryLines = options.summaryLines ?? (help ? help.split("\n") : []);
-				const lines: string[] = [
+				const border = theme.fg("borderMuted", "─".repeat(Math.max(0, width)));
+				const hintLines = layoutHintLines(getHints(), theme, width);
+				const summaryLines = (options.summaryLines ?? (help ? help.split("\n") : []))
+					.map((line) => truncateToWidth(theme.fg("dim", line), width));
+				const searchLine = searchable && (searchActive || searchQuery) ? renderQueryLine(width) : undefined;
+				const tableHeaderText = typeof options.tableHeader === "function"
+					? options.tableHeader(width, theme)
+					: options.tableHeader;
+				// [喵喵喵]: 详情文本由调用方按语义着色，这里只负责裁剪，避免外层样式与内层 reset 互相打断。
+				const detailLines = (options.getDetailLines?.(activeRows[selectedIndex], theme) ?? [])
+					.map((line) => truncateToWidth(line, width));
+
+				// [喵喵喵]: 矮终端下按优先级降级：上下边框、标题、快捷键提示和最小列表必须保留，
+				// 剩余空间才依次发给搜索行、表头、摘要、详情；否则总行数超过终端高度时底部提示会被裁掉。
+				const budget = getRowBudget();
+				const essentialRows = 2 + 1 + 1 + (hintLines.length > 0 ? hintLines.length + 1 : 0);
+				// [喵喵喵]: 列表装不下时底部会多一行位置提示，先按最坏情况预留；
+				// 放到算出 viewportRows 之后再扣，在列表已压到最小时就无处可扣了。
+				const scrollHintRows = activeRows.length > MIN_LIST_ROWS ? 1 : 0;
+				let spare = budget - essentialRows - MIN_LIST_ROWS - scrollHintRows;
+
+				const showSearchLine = searchLine !== undefined && spare >= 1;
+				if (showSearchLine) spare -= 1;
+				const showTableHeader = Boolean(tableHeaderText) && spare >= 1;
+				if (showTableHeader) spare -= 1;
+				const showSummary = summaryLines.length > 0 && spare >= summaryLines.length;
+				if (showSummary) spare -= summaryLines.length;
+				const detailBlockRows = detailLines.length > 0 ? detailLines.length + 2 : 0;
+				const showDetail = detailBlockRows > 0 && spare >= detailBlockRows;
+				if (showDetail) spare -= detailBlockRows;
+
+				viewportRows = Math.min(configuredVisibleRows, MIN_LIST_ROWS + Math.max(0, spare));
+
+				const headLines: string[] = [
 					border,
 					truncateToWidth(theme.fg("accent", theme.bold(title)), width),
 				];
+				if (showSummary) headLines.push(...summaryLines);
+				if (showSearchLine) headLines.push(searchLine!);
+				headLines.push("");
+				if (showTableHeader) headLines.push(truncateToWidth(theme.fg("dim", tableHeaderText!), width));
 
-				for (const line of summaryLines) {
-					lines.push(truncateToWidth(theme.fg("dim", line), width));
-				}
-				if (searchable && searchActive) {
-					const cursorGlyph = focused ? `${CURSOR_MARKER}${theme.fg("accent", "▌")}` : "";
-					const searchPrefix = theme.fg("accent", "搜索：");
-					const queryWidth = Math.max(0, width - visibleWidth(searchPrefix));
-					const queryDisplay = searchQuery
-						? fitSearchQueryAroundCursor(searchQuery, searchCursor, cursorGlyph, queryWidth)
-						: `${cursorGlyph}${theme.fg("dim", "<输入关键词>")}`;
-					lines.push(truncateToWidth(`${searchPrefix}${queryDisplay}`, width, ""));
-				}
-				lines.push("");
+				const tailLines: string[] = [];
+				if (showDetail) tailLines.push("", border, ...detailLines);
+				if (hintLines.length > 0) tailLines.push("", ...hintLines.map((line) => truncateToWidth(line, width)));
+				tailLines.push(border);
 
-				const tableHeader = typeof options.tableHeader === "function"
-					? options.tableHeader(width)
-					: options.tableHeader;
-				if (tableHeader) lines.push(truncateToWidth(theme.fg("dim", tableHeader), width));
+				const windowStart = Math.max(
+					0,
+					Math.min(selectedIndex - Math.floor(viewportRows / 2), Math.max(0, activeRows.length - viewportRows)),
+				);
+				const shownRows = activeRows.slice(windowStart, windowStart + viewportRows);
+				const scrolling = activeRows.length > viewportRows;
+				const contentWidth = Math.max(0, scrolling ? width - SCROLLBAR_WIDTH : width);
 
+				const bodyLines: string[] = [];
 				if (shownRows.length === 0) {
 					const emptyLabel = searchQuery ? `无匹配项：${searchQuery}` : options.emptyLabel ?? "暂无条目";
-					lines.push(truncateToWidth(theme.fg("dim", `  ${emptyLabel}`), width));
+					bodyLines.push(truncateToWidth(theme.fg("dim", `  ${emptyLabel}`), width));
 				} else {
-					for (let i = 0; i < shownRows.length; i += 1) {
-						const absoluteIndex = windowStart + i;
-						const row = shownRows[i]!;
-						const selected = absoluteIndex === selectedIndex;
+					for (let offset = 0; offset < shownRows.length; offset += 1) {
+						const row = shownRows[offset]!;
+						const selected = windowStart + offset === selectedIndex;
 						const prefix = selected ? "❯ " : "  ";
-						const rowLabel = options.formatRow?.(row, Math.max(0, width - visibleWidth(prefix))) ?? row.label;
-						const line = `${prefix}${rowLabel}`;
-						lines.push(truncateToWidth(selected ? theme.fg("accent", line) : line, width));
-						for (const description of getDescriptionLines(row)) {
-							lines.push(truncateToWidth(theme.fg("dim", `    ${description}`), width));
-						}
+						const rowLabel = options.formatRow?.(row, Math.max(0, contentWidth - visibleWidth(prefix)), theme) ?? row.label;
+						const rowText = truncateToWidth(`${prefix}${rowLabel}`, contentWidth);
+						// [喵喵喵]: 选中行用背景色而不是整行前景色，列内的语义色才不会被抹平。
+						const styledRow = selected ? theme.bg("selectedBg", padToVisibleWidth(rowText, contentWidth)) : rowText;
+						bodyLines.push(scrolling
+							? `${styledRow} ${theme.fg("borderMuted", getScrollbarGlyph(offset, viewportRows, windowStart, activeRows.length))}`
+							: styledRow);
+					}
+					if (scrolling) {
+						const position = `${windowStart + 1}-${windowStart + shownRows.length} / ${activeRows.length}`;
+						bodyLines.push(theme.fg("dim", padToVisibleWidth("", Math.max(0, contentWidth - visibleWidth(position))) + position));
 					}
 				}
 
-				const detailLines = options.getDetailLines?.(activeRows[selectedIndex]) ?? [];
-				if (detailLines.length > 0) {
-					lines.push("", border);
-					for (const line of detailLines) {
-						lines.push(truncateToWidth(theme.fg("dim", line), width));
-					}
-				}
-
-				const footerLines = options.footer ? options.footer.split("\n") : [];
-				if (searchable) {
-					footerLines.push(searchActive ? `/ 搜索：${searchQuery || "<输入关键词>"}   Backspace 删除   Esc 清空` : "/ 搜索");
-				}
-				if (footerLines.length > 0) {
-					lines.push("");
-					for (const line of footerLines) {
-						lines.push(truncateToWidth(theme.fg("dim", line), width));
-					}
-				}
-
-				lines.push(border);
-				return lines.map((line) => truncateToWidth(line, width));
+				return [...headLines, ...bodyLines, ...tailLines].map((line) => truncateToWidth(line, width));
 			},
 		};
 	});
 }
 
-export async function showPersistentMenu(
+// 内部基础菜单：对外只暴露 showOptionPicker / showPersistentFormMenu / showPersistentShortcutMenu 三个语义入口。
+async function showPersistentMenu(
 	ctx: ExtensionCommandContext,
 	title: string,
 	help: string,
@@ -393,7 +509,35 @@ export async function showPersistentMenu(
 	cursor: MenuCursor,
 	options: PersistentMenuOptions = {},
 ): Promise<MenuAction> {
-	return createPersistentMenu<MenuAction>(ctx, title, help, rows, cursor, undefined, [], undefined, undefined, options);
+	return createPersistentMenu<MenuAction>(ctx, title, help, rows, cursor, undefined, [], undefined, options);
+}
+// 单选弹窗：两个编辑器的所有枚举字段都走这里，避免同一表单里出现两种选择器外观。
+export async function showOptionPicker<TChoice extends { id: string; label: string }>(
+	ctx: ExtensionCommandContext,
+	title: string,
+	choices: readonly TChoice[],
+	currentId: string,
+): Promise<TChoice | undefined> {
+	const cursor: MenuCursor = { index: Math.max(0, choices.findIndex((choice) => choice.id === currentId)) };
+	const action = await showPersistentMenu(
+		ctx,
+		title,
+		"",
+		choices.map((choice) => ({
+			id: choice.id,
+			label: choice.id === currentId ? `${choice.label}  ← 当前` : choice.label,
+		})),
+		cursor,
+		{
+			hints: [
+				{ key: "↑↓", label: "移动" },
+				{ key: "Enter", label: "选择" },
+				{ key: "Esc", label: "返回" },
+			],
+		},
+	);
+	if (action.type === "cancel") return undefined;
+	return choices.find((choice) => choice.id === action.id);
 }
 
 export async function showPersistentFormMenu(
@@ -412,8 +556,7 @@ export async function showPersistentFormMenu(
 		cursor,
 		() => ({ type: "save" }),
 		[],
-		(id, direction) => ({ type: "adjust", id, direction }),
-		new Set(options.adjustableRowIds ?? []),
+		options.onAdjust,
 		options,
 	);
 }
@@ -427,5 +570,5 @@ export async function showPersistentShortcutMenu<TShortcut extends string>(
 	shortcuts: MenuShortcut<TShortcut>[],
 	options: PersistentMenuOptions = {},
 ): Promise<ShortcutMenuAction<TShortcut>> {
-	return createPersistentMenu<ShortcutMenuAction<TShortcut>>(ctx, title, help, rows, cursor, undefined, shortcuts, undefined, undefined, { searchable: true, ...options });
+	return createPersistentMenu<ShortcutMenuAction<TShortcut>>(ctx, title, help, rows, cursor, undefined, shortcuts, undefined, { searchable: true, ...options });
 }
