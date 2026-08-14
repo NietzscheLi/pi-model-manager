@@ -4,11 +4,11 @@
 
 [![Pi](https://img.shields.io/badge/Pi-%3E%3D0.82.0-6f42c1)](https://github.com/earendil-works/pi)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-0.2.0-2f81f7.svg)](https://github.com/Qihuanxishini/pi-model-manager)
+[![Version](https://img.shields.io/badge/version-0.3.0-2f81f7.svg)](https://github.com/Qihuanxishini/pi-model-manager)
 
 一个面向 [Pi](https://github.com/earendil-works/pi) 的 TUI 模型与接入管理扩展。它以 Pi 原生 `models.json` 为模型配置的唯一权威来源，并提供接入/模型编辑、请求头身份、代理路由和协议兼容配置。
 
-> 当前稳定版为 `0.2.0`，要求 Pi `>=0.82.0`。
+> 当前稳定版为 `0.3.0`，要求 Pi `>=0.82.0`。
 
 ## 界面预览
 

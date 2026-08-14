@@ -4,11 +4,11 @@ English · [简体中文](./README.md)
 
 [![Pi](https://img.shields.io/badge/Pi-%3E%3D0.82.0-6f42c1)](https://github.com/earendil-works/pi)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-0.2.0-2f81f7.svg)](https://github.com/Qihuanxishini/pi-model-manager)
+[![Version](https://img.shields.io/badge/version-0.3.0-2f81f7.svg)](https://github.com/Qihuanxishini/pi-model-manager)
 
 A TUI model and provider manager for [Pi](https://github.com/earendil-works/pi). It keeps Pi's native `models.json` as the single source of truth for model configuration while adding provider/model editing, client-header identities, proxy routing, and protocol compatibility controls.
 
-> The current stable version is `0.2.0` and requires Pi `>=0.82.0`.
+> The current stable version is `0.3.0` and requires Pi `>=0.82.0`.
 
 ## Interface preview
 
