@@ -12,34 +12,123 @@ A TUI model and provider manager for [Pi](https://github.com/earendil-works/pi).
 
 ## Interface preview
 
-![pi-model-manager interface overview](https://raw.githubusercontent.com/Qihuanxishini/pi-model-manager/main/assets/pi-model-manager-preview.png)
+The screens below are rendered by the real components at 88 columns. In practice column widths adapt to your data, the selected row is highlighted with a background colour, and column values are semantically coloured. The TUI copy itself is Simplified Chinese.
+
+```text
+────────────────────────────────────────────────────────────────────────────────────────
+/model-manager
+4 接入 · 5 模型 · 0 内置抓包 · 0 自定义请求头
+
+  接入                API          模型  请求头           代理    认证    状态
+❯ OpenAI (openai)     Responses       2  Auto→Codex       direct  env     ready
+  Claude (claude)     Claude          1  ClaudeCode       direct  env     ready
+  Gemini (gemini)     Gemini          1  Auto→不添加      direct  env     ready
+  Local vLLM (local)  Chat            1  Off              proxy   key     ready
+
+────────────────────────────────────────────────────────────────────────────────────────
+OpenAI (openai)
+  endpoint  https://api.openai.com/v1
+  proxy     direct
+  api       Responses · headers Auto→Codex · auth env
+  models    gpt-5.1, gpt-5.1-mini
+
+↑↓ 选择   Enter 进入   N 新建接入   D 删除接入   H 请求头   Esc 退出   / 搜索
+────────────────────────────────────────────────────────────────────────────────────────
+```
 
 <details>
-<summary>View all four full-size screenshots</summary>
+<summary>Show the other four screens</summary>
+
+### Models inside a provider
+
+```text
+────────────────────────────────────────────────────────────────────────────────────────
+/model-manager / OpenAI
+Responses · 2 模型 · headers Auto→Codex · proxy direct · auth env
+endpoint  https://api.openai.com/v1
+
+  模型 ID         显示名    输入        Thinking   上下文
+❯ gpt-5.1         默认      文本,视觉   开           400K
+  gpt-5.1-mini    默认      文本,视觉   开           400K
+
+↑↓ 选择   Enter 编辑模型   A 添加模型   E 编辑接入   D 删除模型   Esc 返回   / 搜索
+────────────────────────────────────────────────────────────────────────────────────────
+```
 
 ### Provider setup
 
-![Provider setup](https://raw.githubusercontent.com/Qihuanxishini/pi-model-manager/main/assets/screenshots/provider-setup.png)
+```text
+────────────────────────────────────────────────────────────────────────────────────────
+编辑接入 openai
+API Responses · 请求头 自动推荐（Auto→Codex）
+接入 ID 必填，且不能与已有或 pi 内置接入重复
+Ctrl+S 保存并同步 models.json；不切换当前会话模型
 
-### Model discovery
+  接入 ID         openai
+  显示名称        OpenAI
+  API 协议        OpenAI Responses
+❯ Base URL        https://api.openai.com/v1
+  本机代理        关闭
+  代理地址        关闭时不使用
+  API key         $OPENAI_API_KEY
+  认证头          默认
+  请求头          自动推荐（Auto→Codex）
 
-![Model discovery](https://raw.githubusercontent.com/Qihuanxishini/pi-model-manager/main/assets/screenshots/model-discovery.png)
-
-### Provider and model overview
-
-![Provider and model overview](https://raw.githubusercontent.com/Qihuanxishini/pi-model-manager/main/assets/screenshots/provider-models.png)
+↑↓ 选择   ←→ 切换选项   Enter 编辑   Ctrl+S 保存并同步   Esc 返回
+────────────────────────────────────────────────────────────────────────────────────────
+```
 
 ### Model capabilities
 
-![Model capabilities](https://raw.githubusercontent.com/Qihuanxishini/pi-model-manager/main/assets/screenshots/model-editor.png)
+```text
+────────────────────────────────────────────────────────────────────────────────────────
+编辑模型 gpt-5.1
+接入 openai · API Responses
+Ctrl+S 保存并启用模型；不切换当前会话模型
+
+  模型 ID         gpt-5.1
+  重新拉取        上游模型列表
+  显示名称        默认 = 模型 ID
+❯ 视觉支持        开启
+  Thinking        开启
+  Fast mode       关闭
+  上下文窗口      400000
+  最大输出        128000
+  请求头          跟随接入（Auto→Codex）
+
+↑↓ 选择   ←→ 切换选项   Enter 编辑   Ctrl+S 保存并启用   Esc 返回
+────────────────────────────────────────────────────────────────────────────────────────
+```
+
+### Model discovery
+
+```text
+────────────────────────────────────────────────────────────────────────────────────────
+选择模型（openai）
+搜索: <直接输入搜索>
+匹配 9 / 9 · 页码 1 / 2
+
+  dall-e-3
+  gpt-4.1
+  gpt-4.1-mini
+❯ gpt-5.1  ← 当前
+  gpt-5.1-codex
+  gpt-5.1-mini
+  o4-mini
+  text-embedding-3-large
+
+↑↓ 选择 · ←→/PgUp/PgDn 翻页 · 输入搜索 · Backspace 删除 · Enter 确认 · Esc 取消
+────────────────────────────────────────────────────────────────────────────────────────
+```
 
 </details>
+
 ## Features
 
 - Create, edit, and delete providers and models from the `/model-manager` TUI.
 - Supports `openai-completions`, `openai-responses`, `anthropic-messages`, and `google-generative-ai`.
 - Fetch model IDs from compatible upstream APIs or enter them manually.
-- Configure context window, maximum output, vision input, and reasoning support.
+- Configure context window, maximum output, vision support, and reasoning support.
 - Choose Anthropic Adaptive Thinking or Legacy Thinking.
 - Enable `service_tier=priority` (Fast mode) per OpenAI Responses model.
 - Route each provider directly or through its own HTTP(S) proxy.
@@ -89,13 +178,15 @@ pi install npm:pi-model-manager
    | Key | Action |
    | --- | --- |
    | `Enter` | Open the selected provider and manage its models |
-   | `n` | Create a provider and its first model |
-   | `d` | Delete the selected provider |
-   | `h` | Manage reusable header profiles |
-   | `/` | Search the current list |
+   | `N` | Create a provider and its first model |
+   | `D` | Delete the selected provider |
+   | `H` | Manage reusable header profiles |
+   | `/` | Search the current list; `Tab` leaves the input while keeping the filter, `Esc` clears it |
    | `Esc` | Go back or exit |
 
-4. In an editor, use the arrow keys to select a field and press `Enter` to edit it. Toggle supported fields with `←` / `→`, then press `Ctrl+S` to save.
+   Single-letter shortcuts are case-insensitive. The footer hints wrap per item, so they are never truncated away on narrow terminals.
+
+4. In an editor, use `↑` / `↓` to select a field and press `Enter` to edit it. Toggle switch fields in place with `←` / `→`, then press `Ctrl+S` to save.
 
 Saving updates and enables the model, but it does not force the current session to switch models.
 
@@ -111,10 +202,12 @@ Each provider can define:
 
 When adding a model, the extension attempts to fetch the upstream model list. The complete discovery flow, including authentication fallbacks, shares one 10-second limit and can be cancelled with `Esc`. You can still enter a model ID manually after failure or cancellation.
 
+The base URL is normalized as you enter it into the root address each protocol's SDK expects: OpenAI variants get `/v1` appended, Anthropic has `/v1` stripped, and Google gets `/v1beta` on its official host. A non-root path you type explicitly (such as `https://gw.example.com/custom`) is never rewritten. Switching the API protocol re-normalizes the address for the new protocol. As a result `models.json` always stores the actual request root, so Pi can use it directly even when this extension is not loaded.
+
 Model capabilities include:
 
 - Display name
-- Text or text-and-image input
+- Vision support (text only, or text + image input)
 - Reasoning support
 - Anthropic Adaptive/Legacy Thinking
 - OpenAI Responses Fast mode
@@ -132,8 +225,8 @@ Model capabilities include:
 
 The current built-in values were derived from real client requests with authentication fields removed:
 
-- Claude Code `2.1.219`
-- Codex TUI `0.145.0`
+- Claude Code `2.1.232`
+- Codex TUI `0.147.0`
 
 These headers only help API gateways that require a recognized client identity; they do not replace an API key. The public repository and npm package contain **no request-capture tooling, user captures, authentication headers, or machine-local state**. Disable identity headers or create a custom profile if a built-in profile does not fit your endpoint.
 

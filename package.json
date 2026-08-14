@@ -64,8 +64,7 @@
   "pi": {
     "extensions": [
       "./index.ts"
-    ],
-    "image": "https://raw.githubusercontent.com/Qihuanxishini/pi-model-manager/main/assets/pi-model-manager-preview.png"
+    ]
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": ">=0.82.0",
