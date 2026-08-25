@@ -4,11 +4,11 @@ English · [简体中文](./README.md)
 
 [![Pi](https://img.shields.io/badge/Pi-%3E%3D0.84.2-6f42c1)](https://github.com/earendil-works/pi)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-0.3.1-2f81f7.svg)](https://github.com/Qihuanxishini/pi-model-manager)
+[![Version](https://img.shields.io/badge/version-0.3.2-2f81f7.svg)](https://github.com/Qihuanxishini/pi-model-manager)
 
 A TUI model and provider manager for [Pi](https://github.com/earendil-works/pi). It keeps Pi's native `models.json` as the single source of truth for model configuration while adding provider/model editing, client-header identities, proxy routing, and protocol compatibility controls.
 
-> The current stable version is `0.3.1` and requires Pi `>=0.84.2`.
+> The current stable version is `0.3.2` and requires Pi `>=0.84.2`.
 
 ## Interface preview
 
@@ -30,7 +30,7 @@ OpenAI (openai)
   endpoint  https://api.openai.com/v1
   proxy     direct
   api       Responses · headers Auto→Codex · auth env
-  models    gpt-5.1, gpt-5.1-mini
+  models    gpt-5.6-sol, gpt-5.6-terra
 
 ↑↓ 选择   Enter 进入   N 新建接入   D 删除接入   H 请求头   Esc 退出   / 搜索
 ────────────────────────────────────────────────────────────────────────────────────────
@@ -48,8 +48,8 @@ Responses · 2 模型 · headers Auto→Codex · proxy direct · auth env
 endpoint  https://api.openai.com/v1
 
   模型 ID         显示名    输入        Thinking   上下文
-❯ gpt-5.1         默认      文本,视觉   开           400K
-  gpt-5.1-mini    默认      文本,视觉   开           400K
+❯ gpt-5.6-sol     默认      文本,视觉   开           1.1M
+  gpt-5.6-terra   默认      文本,视觉   开           1.1M
 
 ↑↓ 选择   Enter 编辑模型   A 添加模型   E 编辑接入   D 删除模型   Esc 返回   / 搜索
 ────────────────────────────────────────────────────────────────────────────────────────
@@ -82,17 +82,17 @@ Ctrl+S 保存并同步 models.json；不切换当前会话模型
 
 ```text
 ────────────────────────────────────────────────────────────────────────────────────────
-编辑模型 gpt-5.1
+编辑模型 gpt-5.6-sol
 接入 openai · API Responses
 Ctrl+S 保存并启用模型；不切换当前会话模型
 
-  模型 ID         gpt-5.1
+  模型 ID         gpt-5.6-sol
   重新拉取        上游模型列表
   显示名称        默认 = 模型 ID
 ❯ 视觉支持        开启
   Thinking        开启
   Fast mode       关闭
-  上下文窗口      400000
+  上下文窗口      1050000
   最大输出        128000
   请求头          跟随接入（Auto→Codex）
 
@@ -108,14 +108,14 @@ Ctrl+S 保存并启用模型；不切换当前会话模型
 搜索: <直接输入搜索>
 匹配 9 / 9 · 页码 1 / 2
 
-  dall-e-3
-  gpt-4.1
-  gpt-4.1-mini
-❯ gpt-5.1  ← 当前
-  gpt-5.1-codex
-  gpt-5.1-mini
-  o4-mini
-  text-embedding-3-large
+  gpt-5.3
+  gpt-5.4
+  gpt-5.4-mini
+  gpt-5.5
+  gpt-5.6-luna
+❯ gpt-5.6-sol  ← 当前
+  gpt-5.6-terra
+  gpt-image-2
 
 ↑↓ 选择 · ←→/PgUp/PgDn 翻页 · 输入搜索 · Backspace 删除 · Enter 确认 · Esc 取消
 ────────────────────────────────────────────────────────────────────────────────────────
@@ -227,8 +227,8 @@ Model capabilities include:
 
 The current built-in values were derived from real client requests with authentication fields removed:
 
-- Claude Code `2.1.232`
-- Codex TUI `0.147.0`
+- Claude Code `2.1.243`
+- Codex TUI `0.149.1`
 
 These headers only help API gateways that require a recognized client identity; they do not replace an API key. The public repository and npm package contain **no request-capture tooling, user captures, authentication headers, or machine-local state**. Disable identity headers or create a custom profile if a built-in profile does not fit your endpoint.
 
@@ -295,9 +295,9 @@ npm pack --dry-run
 
 Open a reproducible report in [GitHub Issues](https://github.com/Qihuanxishini/pi-model-manager/issues). Remove API keys, authentication headers, proxy credentials, and private endpoints before sharing configuration or logs.
 
-## Acknowledgements
+## Friendly links
 
-Thanks to the [LINUX DO](https://linux.do/) community for discussion, sharing, and feedback.
+* [Linux DO](https://linux.do)
 
 ## License
 

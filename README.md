@@ -4,11 +4,11 @@
 
 [![Pi](https://img.shields.io/badge/Pi-%3E%3D0.84.2-6f42c1)](https://github.com/earendil-works/pi)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-0.3.1-2f81f7.svg)](https://github.com/Qihuanxishini/pi-model-manager)
+[![Version](https://img.shields.io/badge/version-0.3.2-2f81f7.svg)](https://github.com/Qihuanxishini/pi-model-manager)
 
 一个面向 [Pi](https://github.com/earendil-works/pi) 的 TUI 模型与接入管理扩展。它以 Pi 原生 `models.json` 为模型配置的唯一权威来源，并提供接入/模型编辑、请求头身份、代理路由和协议兼容配置。
 
-> 当前稳定版为 `0.3.1`，要求 Pi `>=0.84.2`。
+> 当前稳定版为 `0.3.2`，要求 Pi `>=0.84.2`。
 
 ## 界面预览
 
@@ -30,7 +30,7 @@ OpenAI (openai)
   endpoint  https://api.openai.com/v1
   proxy     direct
   api       Responses · headers Auto→Codex · auth env
-  models    gpt-5.1, gpt-5.1-mini
+  models    gpt-5.6-sol, gpt-5.6-terra
 
 ↑↓ 选择   Enter 进入   N 新建接入   D 删除接入   H 请求头   Esc 退出   / 搜索
 ────────────────────────────────────────────────────────────────────────────────────────
@@ -48,8 +48,8 @@ Responses · 2 模型 · headers Auto→Codex · proxy direct · auth env
 endpoint  https://api.openai.com/v1
 
   模型 ID         显示名    输入        Thinking   上下文
-❯ gpt-5.1         默认      文本,视觉   开           400K
-  gpt-5.1-mini    默认      文本,视觉   开           400K
+❯ gpt-5.6-sol     默认      文本,视觉   开           1.1M
+  gpt-5.6-terra   默认      文本,视觉   开           1.1M
 
 ↑↓ 选择   Enter 编辑模型   A 添加模型   E 编辑接入   D 删除模型   Esc 返回   / 搜索
 ────────────────────────────────────────────────────────────────────────────────────────
@@ -82,17 +82,17 @@ Ctrl+S 保存并同步 models.json；不切换当前会话模型
 
 ```text
 ────────────────────────────────────────────────────────────────────────────────────────
-编辑模型 gpt-5.1
+编辑模型 gpt-5.6-sol
 接入 openai · API Responses
 Ctrl+S 保存并启用模型；不切换当前会话模型
 
-  模型 ID         gpt-5.1
+  模型 ID         gpt-5.6-sol
   重新拉取        上游模型列表
   显示名称        默认 = 模型 ID
 ❯ 视觉支持        开启
   Thinking        开启
   Fast mode       关闭
-  上下文窗口      400000
+  上下文窗口      1050000
   最大输出        128000
   请求头          跟随接入（Auto→Codex）
 
@@ -108,14 +108,14 @@ Ctrl+S 保存并启用模型；不切换当前会话模型
 搜索: <直接输入搜索>
 匹配 9 / 9 · 页码 1 / 2
 
-  dall-e-3
-  gpt-4.1
-  gpt-4.1-mini
-❯ gpt-5.1  ← 当前
-  gpt-5.1-codex
-  gpt-5.1-mini
-  o4-mini
-  text-embedding-3-large
+  gpt-5.3
+  gpt-5.4
+  gpt-5.4-mini
+  gpt-5.5
+  gpt-5.6-luna
+❯ gpt-5.6-sol  ← 当前
+  gpt-5.6-terra
+  gpt-image-2
 
 ↑↓ 选择 · ←→/PgUp/PgDn 翻页 · 输入搜索 · Backspace 删除 · Enter 确认 · Esc 取消
 ────────────────────────────────────────────────────────────────────────────────────────
@@ -231,8 +231,8 @@ Base URL 在填入时就会归一化为各协议 SDK 可直接使用的根地址
 
 当前内置值来自真实客户端请求并已移除认证信息：
 
-- Claude Code `2.1.232`
-- Codex TUI `0.147.0`
+- Claude Code `2.1.243`
+- Codex TUI `0.149.1`
 
 这些值只用于兼容需要识别客户端身份的 API 中转，不代替 API key。公开仓库和 npm 包**不包含请求捕获工具、用户抓包、认证头或本机状态**。如果内置值不适合你的服务，请关闭身份头或创建自定义请求头。
 
@@ -299,9 +299,9 @@ npm pack --dry-run
 
 请通过 [GitHub Issues](https://github.com/Qihuanxishini/pi-model-manager/issues) 提交可复现的问题。报告配置问题时，请删除 API key、认证头、代理凭据和私有 endpoint。
 
-## 致谢
+## 友情链接
 
-感谢 [LINUX DO](https://linux.do/) 社区的讨论、分享和反馈。
+* [Linux DO](https://linux.do)
 
 ## 许可证
 
