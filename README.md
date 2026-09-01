@@ -4,11 +4,11 @@
 
 [![Pi](https://img.shields.io/badge/Pi-%3E%3D0.84.2-6f42c1)](https://github.com/earendil-works/pi)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-0.3.2-2f81f7.svg)](https://github.com/Qihuanxishini/pi-model-manager)
+[![Version](https://img.shields.io/badge/version-0.3.4-2f81f7.svg)](https://github.com/Qihuanxishini/pi-model-manager)
 
 一个面向 [Pi](https://github.com/earendil-works/pi) 的 TUI 模型与接入管理扩展。它以 Pi 原生 `models.json` 为模型配置的唯一权威来源，并提供接入/模型编辑、请求头身份、代理路由和协议兼容配置。
 
-> 当前稳定版为 `0.3.2`，要求 Pi `>=0.84.2`。
+> 当前稳定版为 `0.3.4`，要求 Pi `>=0.84.2`。
 
 ## 界面预览
 
@@ -128,6 +128,7 @@ Ctrl+S 保存并启用模型；不切换当前会话模型
 - 在 `/model-manager` TUI 中新增、编辑和删除接入与模型。
 - 界面默认使用简体中文；可在主面板按 `L` 切换为 English，语言选择会持久保存。
 - 原生支持 `openai-completions`、`openai-responses`、`anthropic-messages` 和 `google-generative-ai`。
+- 为 OpenAI Chat 接入提供标准 Pi 默认行为与 `system` role 兼容模式。
 - 从兼容上游拉取模型 ID，也可手动填写模型。
 - 配置上下文窗口、最大输出、视觉支持和 Thinking。
 - 支持 Anthropic Adaptive Thinking 与 Legacy Thinking。
@@ -207,6 +208,17 @@ pi install npm:pi-model-manager
 新建模型时，扩展会尝试从上游读取模型列表；整次发现（包括认证回退）共用一个 10 秒上限，可按 `Esc` 手动取消。失败或取消后仍可手动输入模型 ID。
 
 Base URL 在填入时就会归一化为各协议 SDK 可直接使用的根地址：OpenAI 系补上 `/v1`，Anthropic 剔除 `/v1`，Google 在官方域名上补 `/v1beta`；你显式填的非根路径（如 `https://gw.example.com/custom`）不会被改写。切换 API 协议时地址会按新协议重新归一化。因此 `models.json` 里存的就是实际请求根地址，本扩展未加载时 Pi 也能直接使用。
+
+### Chat 协议兼容
+
+当 API 协议为 `openai-completions`（OpenAI Chat）时，接入编辑器会显示「协议兼容」。用 `←` / `→` 切换，或按 `Enter` 查看完整说明；该设置作用于接入内的所有模型。
+
+| 模式 | 保存行为 | 使用场景 |
+| --- | --- | --- |
+| 标准 · Pi 默认 | 移除 `compat.supportsDeveloperRole` 覆写，保留 Pi 对端点的默认兼容判断 | 常规 Chat 接入 |
+| 兼容 · system | 写入 `compat.supportsDeveloperRole: false`；reasoning 模型的系统提示词使用 `system` role | 中转不能正确处理 `developer` role，导致系统提示词或人设失效 |
+
+优先使用「标准 · Pi 默认」。只有确认接入需要 `system` role 时才选择「兼容 · system」；切换回标准会恢复 Pi 的默认判断。
 
 ### 模型能力
 

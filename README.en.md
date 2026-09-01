@@ -4,11 +4,11 @@ English · [简体中文](./README.md)
 
 [![Pi](https://img.shields.io/badge/Pi-%3E%3D0.84.2-6f42c1)](https://github.com/earendil-works/pi)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-0.3.2-2f81f7.svg)](https://github.com/Qihuanxishini/pi-model-manager)
+[![Version](https://img.shields.io/badge/version-0.3.4-2f81f7.svg)](https://github.com/Qihuanxishini/pi-model-manager)
 
 A TUI model and provider manager for [Pi](https://github.com/earendil-works/pi). It keeps Pi's native `models.json` as the single source of truth for model configuration while adding provider/model editing, client-header identities, proxy routing, and protocol compatibility controls.
 
-> The current stable version is `0.3.2` and requires Pi `>=0.84.2`.
+> The current stable version is `0.3.4` and requires Pi `>=0.84.2`.
 
 ## Interface preview
 
@@ -128,6 +128,7 @@ Ctrl+S 保存并启用模型；不切换当前会话模型
 - Create, edit, and delete providers and models from the `/model-manager` TUI.
 - Start in Simplified Chinese and press `L` on the dashboard to switch to English; the language preference is saved.
 - Supports `openai-completions`, `openai-responses`, `anthropic-messages`, and `google-generative-ai`.
+- Choose Pi's standard default behavior or a `system`-role compatibility mode for OpenAI Chat providers.
 - Fetch model IDs from compatible upstream APIs or enter them manually.
 - Configure context window, maximum output, vision support, and reasoning support.
 - Choose Anthropic Adaptive Thinking or Legacy Thinking.
@@ -205,6 +206,17 @@ Each provider can define:
 When adding a model, the extension attempts to fetch the upstream model list. The complete discovery flow, including authentication fallbacks, shares one 10-second limit and can be cancelled with `Esc`. You can still enter a model ID manually after failure or cancellation.
 
 The base URL is normalized as you enter it into the root address each protocol's SDK expects: OpenAI variants get `/v1` appended, Anthropic has `/v1` stripped, and Google gets `/v1beta` on its official host. A non-root path you type explicitly (such as `https://gw.example.com/custom`) is never rewritten. Switching the API protocol re-normalizes the address for the new protocol. As a result `models.json` always stores the actual request root, so Pi can use it directly even when this extension is not loaded.
+
+### Chat protocol compatibility
+
+When the API protocol is `openai-completions` (OpenAI Chat), the provider editor shows **Protocol compatibility**. Switch with `←` / `→`, or press `Enter` for the full descriptions; the setting applies to every model in that provider.
+
+| Mode | Persisted behavior | Use when |
+| --- | --- | --- |
+| Standard · Pi default | Removes the `compat.supportsDeveloperRole` override and retains Pi's default endpoint compatibility decision | A regular Chat provider |
+| Compatible · system | Writes `compat.supportsDeveloperRole: false`; system prompts for reasoning models use the `system` role | A gateway does not correctly handle the `developer` role, causing system prompts or persona instructions to fail |
+
+Use **Standard · Pi default** first. Select **Compatible · system** only when the endpoint requires the `system` role; switching back to Standard restores Pi's default decision.
 
 Model capabilities include:
 
