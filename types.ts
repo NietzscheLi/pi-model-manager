@@ -12,6 +12,7 @@ type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "
 export type ThinkingLevelMap = Partial<Record<ThinkingLevel, string | null>>;
 export type ReasoningMode = "enabled" | "disabled";
 export type AnthropicThinkingProtocol = "adaptive" | "legacy";
+export type OpenAIChatDeveloperRole = "auto" | "developer" | "system";
 export type BuiltInClientHeaderProfileId = "claude-code" | "codex-cli";
 export type ClientHeaderProfileId = "recommended" | "disabled" | BuiltInClientHeaderProfileId | "custom";
 export type CompatSettings = Record<string, unknown>;
@@ -105,6 +106,8 @@ export interface ProviderDraft {
 	providerId: string;
 	providerName: string;
 	api: ApiKind;
+	/** Chat Completions 的 system prompt role；auto 不写 compat 覆盖。 */
+	openAIChatDeveloperRole?: OpenAIChatDeveloperRole;
 	baseUrl: string;
 	apiKey: string;
 	authHeader: boolean;

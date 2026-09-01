@@ -17,6 +17,7 @@ const {
 const { buildStateDocumentFromModelsJson } = await import("../state-store.ts");
 const {
 	createProviderDraft,
+	createProviderDraftFromStored,
 	upsertProviderInDocument,
 	upsertRequestHeaderProfileInDocument,
 } = await import("../state-document.ts");
@@ -150,4 +151,40 @@ test("显式保存 Provider 会记录所有权", () => {
 	const next = upsertProviderInDocument(state, undefined, draft);
 	assert.equal(next.providers.managed!.managed, true);
 	assert.deepEqual(next.managedProviderIds, ["managed"]);
+});
+
+test("Chat 协议兼容仅覆盖 supportsDeveloperRole 并保留其它 compat", () => {
+	const state = {
+		version: 2 as const,
+		providers: {
+			gateway: {
+				name: "Gateway",
+				api: "openai-completions" as const,
+				baseUrl: "https://gateway.example.test/v1",
+				managed: true,
+				clientHeaderProfile: "recommended" as const,
+				compat: { supportsDeveloperRole: false, supportsReasoningEffort: true },
+				models: [],
+			},
+		},
+		managedProviderIds: ["gateway"],
+		requestHeaderProfiles: {},
+		clientHeaderCaptures: {},
+	};
+	const compatibleDraft = createProviderDraftFromStored("gateway", state.providers.gateway);
+	assert.equal(compatibleDraft.openAIChatDeveloperRole, "system");
+
+	compatibleDraft.openAIChatDeveloperRole = "developer";
+	const standard = upsertProviderInDocument(state, "gateway", compatibleDraft);
+	assert.deepEqual(standard.providers.gateway!.compat, {
+		supportsDeveloperRole: true,
+		supportsReasoningEffort: true,
+	});
+
+	const automaticDraft = createProviderDraftFromStored("gateway", standard.providers.gateway!);
+	assert.equal(automaticDraft.openAIChatDeveloperRole, "developer");
+	automaticDraft.openAIChatDeveloperRole = "auto";
+	const automatic = upsertProviderInDocument(standard, "gateway", automaticDraft);
+	assert.deepEqual(automatic.providers.gateway!.compat, { supportsReasoningEffort: true });
+	assert.equal(createProviderDraftFromStored("gateway", automatic.providers.gateway!).openAIChatDeveloperRole, "auto");
 });
