@@ -23,7 +23,7 @@ import { resolveRuntimeBaseUrl } from "./runtime-base-url.ts";
 import type {
 	ApiKind,
 	CompatSettings,
-	OpenAIChatDeveloperRole,
+	OpenAIChatCompatibilityMode,
 	ModelDraft,
 	ProviderDraft,
 	RequestHeaderProfileDraft,
@@ -45,10 +45,8 @@ function isApiKind(value: unknown): value is ApiKind {
 	return typeof value === "string" && API_KINDS.includes(value as ApiKind);
 }
 
-function getOpenAIChatDeveloperRole(compat: CompatSettings | undefined): OpenAIChatDeveloperRole {
-	if (compat?.supportsDeveloperRole === true) return "developer";
-	if (compat?.supportsDeveloperRole === false) return "system";
-	return "auto";
+function getOpenAIChatCompatibilityMode(compat: CompatSettings | undefined): OpenAIChatCompatibilityMode {
+	return compat?.supportsDeveloperRole === false ? "compatible" : "standard";
 }
 
 export function getModelFullId(providerId: string, modelId: string): string {
@@ -84,7 +82,7 @@ export function createProviderDraft(api: ApiKind = "openai-responses"): Provider
 		providerId: "",
 		providerName: preset.defaultProviderName,
 		api,
-		openAIChatDeveloperRole: "auto",
+		openAIChatCompatibilityMode: "standard",
 		baseUrl: preset.baseUrl,
 		apiKey: preset.apiKey,
 		authHeader: preset.authHeader,
@@ -103,7 +101,7 @@ export function createProviderDraftFromStored(providerId: string, stored: Stored
 		providerId,
 		providerName: stored.name ?? (providerId.replace(/^custom-/, "") || preset.defaultProviderName),
 		api,
-		openAIChatDeveloperRole: getOpenAIChatDeveloperRole(stored.compat),
+		openAIChatCompatibilityMode: getOpenAIChatCompatibilityMode(stored.compat),
 		baseUrl: stored.baseUrl ?? preset.baseUrl,
 		apiKey: stored.apiKey ?? "",
 		authHeader: stored.authHeader ?? preset.authHeader,
@@ -287,7 +285,7 @@ export function getProviderChangeWarnings(
 	if ((current.api ?? "") !== draft.api) changes.push(t("API 协议"));
 	if ((current.authHeader ?? false) !== draft.authHeader) changes.push(t("认证头"));
 	if (draft.api === "openai-completions"
-		&& getOpenAIChatDeveloperRole(current.compat) !== (draft.openAIChatDeveloperRole ?? "auto")) {
+		&& getOpenAIChatCompatibilityMode(current.compat) !== (draft.openAIChatCompatibilityMode ?? "standard")) {
 		changes.push(t("协议兼容"));
 	}
 	if ((current.clientHeaderProfile ?? "recommended") !== draft.clientHeaderProfile
@@ -365,10 +363,10 @@ function buildProviderFromDraft(
 	} else {
 		delete next.customClientHeaders;
 	}
-	if (draft.api === "openai-completions" && draft.openAIChatDeveloperRole !== undefined) {
+	if (draft.api === "openai-completions" && draft.openAIChatCompatibilityMode !== undefined) {
 		const compat: CompatSettings = cloneJson(next.compat) ?? {};
-		if (draft.openAIChatDeveloperRole === "auto") delete compat.supportsDeveloperRole;
-		else compat.supportsDeveloperRole = draft.openAIChatDeveloperRole === "developer";
+		if (draft.openAIChatCompatibilityMode === "standard") delete compat.supportsDeveloperRole;
+		else compat.supportsDeveloperRole = false;
 		if (Object.keys(compat).length > 0) next.compat = compat;
 		else delete next.compat;
 	}

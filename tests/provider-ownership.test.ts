@@ -153,7 +153,7 @@ test("显式保存 Provider 会记录所有权", () => {
 	assert.deepEqual(next.managedProviderIds, ["managed"]);
 });
 
-test("Chat 协议兼容仅覆盖 supportsDeveloperRole 并保留其它 compat", () => {
+test("Chat 协议兼容仅在兼容模式覆盖 supportsDeveloperRole 并保留其它 compat", () => {
 	const state = {
 		version: 2 as const,
 		providers: {
@@ -172,19 +172,12 @@ test("Chat 协议兼容仅覆盖 supportsDeveloperRole 并保留其它 compat", 
 		clientHeaderCaptures: {},
 	};
 	const compatibleDraft = createProviderDraftFromStored("gateway", state.providers.gateway);
-	assert.equal(compatibleDraft.openAIChatDeveloperRole, "system");
+	assert.equal(compatibleDraft.openAIChatCompatibilityMode, "compatible");
 
-	compatibleDraft.openAIChatDeveloperRole = "developer";
+	compatibleDraft.openAIChatCompatibilityMode = "standard";
 	const standard = upsertProviderInDocument(state, "gateway", compatibleDraft);
 	assert.deepEqual(standard.providers.gateway!.compat, {
-		supportsDeveloperRole: true,
 		supportsReasoningEffort: true,
 	});
-
-	const automaticDraft = createProviderDraftFromStored("gateway", standard.providers.gateway!);
-	assert.equal(automaticDraft.openAIChatDeveloperRole, "developer");
-	automaticDraft.openAIChatDeveloperRole = "auto";
-	const automatic = upsertProviderInDocument(standard, "gateway", automaticDraft);
-	assert.deepEqual(automatic.providers.gateway!.compat, { supportsReasoningEffort: true });
-	assert.equal(createProviderDraftFromStored("gateway", automatic.providers.gateway!).openAIChatDeveloperRole, "auto");
+	assert.equal(createProviderDraftFromStored("gateway", standard.providers.gateway!).openAIChatCompatibilityMode, "standard");
 });

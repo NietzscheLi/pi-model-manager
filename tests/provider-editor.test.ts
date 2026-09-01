@@ -14,7 +14,7 @@ function createChatDraft(): ProviderDraft {
 		providerId: "gateway",
 		providerName: "Gateway",
 		api: "openai-completions",
-		openAIChatDeveloperRole: "auto",
+		openAIChatCompatibilityMode: "standard",
 		baseUrl: "https://gateway.example.test/v1",
 		apiKey: "",
 		authHeader: false,
@@ -26,7 +26,7 @@ function createChatDraft(): ProviderDraft {
 	};
 }
 
-test("Chat 接入的协议兼容支持左右键三态切换并显示说明", async () => {
+test("Chat 接入的协议兼容支持左右键两态切换并显示说明", async () => {
 	const draft = createChatDraft();
 	let component: MenuComponent | undefined;
 	const ctx = {
@@ -52,18 +52,16 @@ test("Chat 接入的协议兼容支持左右键三态切换并显示说明", asy
 	assert.ok(component, "编辑器应同步创建");
 	const menu = component;
 	for (let index = 0; index < 4; index += 1) menu.handleInput(Key.down);
-	assert.match(menu.render(100).join("\n"), /协议兼容\s+自动 · Pi 默认/);
+	assert.match(menu.render(100).join("\n"), /协议兼容\s+标准 · Pi 默认/);
+	assert.match(menu.render(100).join("\n"), /标准模式：保持 Pi 默认兼容判断。/);
 
 	menu.handleInput(Key.right);
-	assert.equal(draft.openAIChatDeveloperRole, "developer");
-	assert.match(menu.render(100).join("\n"), /标准 · developer/);
-	assert.match(menu.render(100).join("\n"), /标准模式：reasoning 模型的系统提示词使用 developer role。/);
+	assert.equal(draft.openAIChatCompatibilityMode, "compatible");
+	assert.match(menu.render(100).join("\n"), /兼容 · system/);
+	assert.match(menu.render(100).join("\n"), /兼容模式：系统提示词强制使用 system role/);
 
 	menu.handleInput(Key.left);
-	assert.equal(draft.openAIChatDeveloperRole, "auto");
-	menu.handleInput(Key.left);
-	assert.equal(draft.openAIChatDeveloperRole, "system");
-	assert.match(menu.render(100).join("\n"), /兼容模式：系统提示词强制使用 system role/);
+	assert.equal(draft.openAIChatCompatibilityMode, "standard");
 
 	menu.handleInput(Key.ctrl("s"));
 	assert.deepEqual(await outcome, { action: "save", draft });

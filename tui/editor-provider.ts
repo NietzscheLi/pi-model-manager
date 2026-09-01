@@ -9,7 +9,7 @@ import { t } from "../i18n.ts";
 import { switchProviderDraftApiPreset } from "../presets/providers.ts";
 import { redactUrlForDisplay } from "../sensitive-redaction.ts";
 import { resolveRuntimeBaseUrl } from "../runtime-base-url.ts";
-import { DEFAULT_PROVIDER_HTTP_PROXY_URL, type OpenAIChatDeveloperRole } from "../types.ts";
+import { DEFAULT_PROVIDER_HTTP_PROXY_URL, type OpenAIChatCompatibilityMode } from "../types.ts";
 import { showOptionPicker, showPersistentFormMenu, padLabel, type HorizontalDirection, type MenuCursor } from "./persistent-menu.ts";
 import {
 	describeProfile,
@@ -28,31 +28,29 @@ interface FieldRow {
 	adjustable?: boolean;
 }
 
-const OPENAI_CHAT_DEVELOPER_ROLE_ORDER: readonly OpenAIChatDeveloperRole[] = ["auto", "developer", "system"];
+const OPENAI_CHAT_COMPATIBILITY_MODE_ORDER: readonly OpenAIChatCompatibilityMode[] = ["standard", "compatible"];
 
-function getOpenAIChatDeveloperRole(draft: ProviderDraft): OpenAIChatDeveloperRole {
-	return draft.openAIChatDeveloperRole ?? "auto";
+function getOpenAIChatCompatibilityMode(draft: ProviderDraft): OpenAIChatCompatibilityMode {
+	return draft.openAIChatCompatibilityMode ?? "standard";
 }
 
-function describeOpenAIChatDeveloperRole(role: OpenAIChatDeveloperRole): string {
-	if (role === "developer") return t("标准 · developer");
-	if (role === "system") return t("兼容 · system");
-	return t("自动 · Pi 默认");
+function describeOpenAIChatCompatibilityMode(mode: OpenAIChatCompatibilityMode): string {
+	if (mode === "compatible") return t("兼容 · system");
+	return t("标准 · Pi 默认");
 }
 
-function getOpenAIChatDeveloperRoleHint(role: OpenAIChatDeveloperRole): string {
-	if (role === "developer") return t("标准模式：reasoning 模型的系统提示词使用 developer role。");
-	if (role === "system") return t("兼容模式：系统提示词强制使用 system role，适合忽略 developer 的中转。");
-	return t("自动模式：由 Pi 判断系统提示词使用 developer 或 system role。");
+function getOpenAIChatCompatibilityModeHint(mode: OpenAIChatCompatibilityMode): string {
+	if (mode === "compatible") return t("兼容模式：系统提示词强制使用 system role，适合忽略 developer 的中转。");
+	return t("标准模式：保持 Pi 默认兼容判断。");
 }
 
-function cycleOpenAIChatDeveloperRole(
-	role: OpenAIChatDeveloperRole,
+function cycleOpenAIChatCompatibilityMode(
+	mode: OpenAIChatCompatibilityMode,
 	direction: HorizontalDirection,
-): OpenAIChatDeveloperRole {
-	const index = OPENAI_CHAT_DEVELOPER_ROLE_ORDER.indexOf(role);
+): OpenAIChatCompatibilityMode {
+	const index = OPENAI_CHAT_COMPATIBILITY_MODE_ORDER.indexOf(mode);
 	const offset = direction === "right" ? 1 : -1;
-	return OPENAI_CHAT_DEVELOPER_ROLE_ORDER[(index + offset + OPENAI_CHAT_DEVELOPER_ROLE_ORDER.length) % OPENAI_CHAT_DEVELOPER_ROLE_ORDER.length]!;
+	return OPENAI_CHAT_COMPATIBILITY_MODE_ORDER[(index + offset + OPENAI_CHAT_COMPATIBILITY_MODE_ORDER.length) % OPENAI_CHAT_COMPATIBILITY_MODE_ORDER.length]!;
 }
 
 function buildRows(
@@ -73,9 +71,9 @@ function buildRows(
 	];
 	if (draft.api === "openai-completions") {
 		rows.push({
-			id: "openAIChatDeveloperRole",
+			id: "openAIChatCompatibilityMode",
 			label: t("协议兼容"),
-			value: describeOpenAIChatDeveloperRole(getOpenAIChatDeveloperRole(draft)),
+			value: describeOpenAIChatCompatibilityMode(getOpenAIChatCompatibilityMode(draft)),
 			adjustable: true,
 		});
 	}
@@ -91,10 +89,10 @@ function buildRows(
 
 
 
-// 二值开关的两个方向都取反；三态协议兼容按方向循环。
+// 二值开关的两个方向都取反。
 function applyHorizontalToggle(draft: ProviderDraft, fieldId: string, direction: HorizontalDirection): boolean {
-	if (fieldId === "openAIChatDeveloperRole") {
-		draft.openAIChatDeveloperRole = cycleOpenAIChatDeveloperRole(getOpenAIChatDeveloperRole(draft), direction);
+	if (fieldId === "openAIChatCompatibilityMode") {
+		draft.openAIChatCompatibilityMode = cycleOpenAIChatCompatibilityMode(getOpenAIChatCompatibilityMode(draft), direction);
 		return true;
 	}
 	if (fieldId !== "httpProxyEnabled") return false;
@@ -142,18 +140,17 @@ async function editField(
 		if (choice) switchProviderDraftApiPreset(draft, choice.id);
 		return;
 	}
-	if (fieldId === "openAIChatDeveloperRole") {
+	if (fieldId === "openAIChatCompatibilityMode") {
 		const choice = await showOptionPicker(
 			ctx,
 			t("选择协议兼容"),
 			[
-				{ id: "auto", label: t("自动 — 不写强制配置，保持 Pi 当前判断") },
-				{ id: "developer", label: t("标准 — 对 reasoning 模型使用 developer role，适合标准 OpenAI 端点") },
-				{ id: "system", label: t("兼容 — 强制 system role，适合忽略 developer 的中转") },
+				{ id: "standard", label: t("标准 — 保持 Pi 默认兼容判断") },
+				{ id: "compatible", label: t("兼容 — 强制 system role，适合忽略 developer 的中转") },
 			],
-			getOpenAIChatDeveloperRole(draft),
+			getOpenAIChatCompatibilityMode(draft),
 		);
-		if (choice) draft.openAIChatDeveloperRole = choice.id as OpenAIChatDeveloperRole;
+		if (choice) draft.openAIChatCompatibilityMode = choice.id as OpenAIChatCompatibilityMode;
 		return;
 	}
 	if (fieldId === "authHeader") {
@@ -252,7 +249,7 @@ export async function editProvider(
 				t("Ctrl+S 保存并同步 models.json；不切换当前会话模型"),
 			];
 			if (draft.api === "openai-completions") {
-				summaryLines.push(getOpenAIChatDeveloperRoleHint(getOpenAIChatDeveloperRole(draft)));
+				summaryLines.push(getOpenAIChatCompatibilityModeHint(getOpenAIChatCompatibilityMode(draft)));
 			}
 			return summaryLines;
 		};

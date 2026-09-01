@@ -100,14 +100,14 @@ test("切换协议时自定义地址按新协议规则重新归一化", () => {
 	assert.equal(custom.baseUrl, "https://gw.example.com/custom/path");
 });
 
-test("切入 Chat 时补自动协议兼容，并在切换协议后保留选择", () => {
+test("切入 Chat 时补标准协议兼容，并在切换协议后保留选择", () => {
 	const draft = createDraft();
 	switchProviderDraftApiPreset(draft, "openai-completions");
-	assert.equal(draft.openAIChatDeveloperRole, "auto");
+	assert.equal(draft.openAIChatCompatibilityMode, "standard");
 
-	draft.openAIChatDeveloperRole = "system";
+	draft.openAIChatCompatibilityMode = "compatible";
 	switchProviderDraftApiPreset(draft, "anthropic-messages");
-	assert.equal(draft.openAIChatDeveloperRole, "system");
+	assert.equal(draft.openAIChatCompatibilityMode, "compatible");
 	switchProviderDraftApiPreset(draft, "openai-completions");
-	assert.equal(draft.openAIChatDeveloperRole, "system");
+	assert.equal(draft.openAIChatCompatibilityMode, "compatible");
 });
