@@ -1,0 +1,23 @@
+# Installed dependencies (restore with npm install/npm ci)
+node_modules/
+
+# Pi local runtime state and machine-specific metadata
+state.json
+bootstrap-meta.json
+
+# Private request-capture tooling is intentionally not published
+request-capture-service/
+
+# Local development plans (not published to GitHub or npm)
+/docs/OPTIMIZATION-PLAN.md
+
+# Generated artifacts
+*.bak
+*.bak.*
+npm-debug.log*
+coverage/
+*.tgz
+
+# OS metadata
+.DS_Store
+Thumbs.db

@@ -1,0 +1,86 @@
+{
+  "name": "pi-model-manager",
+  "version": "0.3.2",
+  "description": "A TUI model and provider manager for Pi with native models.json persistence, request-header profiles, proxy routing, and protocol compatibility.",
+  "type": "module",
+  "main": "./index.ts",
+  "scripts": {
+    "test": "node --experimental-strip-types --import ./tests/register-test-loader.mjs --test --test-reporter=spec tests/*.test.ts"
+  },
+  "files": [
+    "NOTICE",
+    "README.en.md",
+    "index.ts",
+    "i18n.ts",
+    "ui-language-settings.ts",
+    "state-store.ts",
+    "state-metadata-store.ts",
+    "state-cache.ts",
+    "state-document.ts",
+    "openai-responses-payload.ts",
+    "openai-service-tier.ts",
+    "claude-code-compat.ts",
+    "builtin-model-catalog.ts",
+    "models-json-manager.ts",
+    "models-json-sync.ts",
+    "provider-registrar.ts",
+    "local-proxy-service.ts",
+    "request-pipeline.ts",
+    "model-mutations.ts",
+    "model-metadata.ts",
+    "balance-config.ts",
+    "tui/balance-panel.ts",
+    "header-profile-mutations.ts",
+    "rescue.ts",
+    "atomic-write.ts",
+    "common.ts",
+    "config-value-reference.ts",
+    "configuration-persistence.ts",
+    "configuration-lock.ts",
+    "file-snapshot.ts",
+    "sensitive-redaction.ts",
+    "compat-settings.ts",
+    "runtime-base-url.ts",
+    "types.ts",
+    "tui/",
+    "presets/"
+  ],
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "pi",
+    "model-manager",
+    "provider-manager",
+    "models-json",
+    "client-headers",
+    "openai",
+    "anthropic"
+  ],
+  "author": "Qihuanxishini",
+  "contributors": ["NietzscheLi"],
+  "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NietzscheLi/pi-model-manager.git"
+  },
+  "homepage": "https://github.com/NietzscheLi/pi-model-manager#readme",
+  "bugs": {
+    "url": "https://github.com/NietzscheLi/pi-model-manager/issues"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=0.84.2",
+    "@earendil-works/pi-tui": ">=0.75.0"
+  },
+  "dependencies": {
+    "http-proxy-agent": "^9.1.0",
+    "https-proxy-agent": "^9.1.0",
+    "minimatch": "^10.2.6",
+    "proper-lockfile": "^4.1.2",
+    "yaml": "^2.8.1"
+  }
+}
