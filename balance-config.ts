@@ -1,14 +1,33 @@
-import {
-	BALANCE_PROFILE_IDS,
-	createDefaultBalanceConfig,
-	getBalanceConfigPath,
-	type BalanceProfileId as PiBalanceProfileId,
-} from "@earendil-works/pi-coding-agent";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { join } from "node:path";
 import { parse, parseDocument, stringify } from "yaml";
 import { atomicWriteText } from "./atomic-write.ts";
 import { isObjectRecord } from "./common.ts";
 import { withConfigurationLock } from "./configuration-lock.ts";
 import { readStableTextFileSnapshot } from "./file-snapshot.ts";
+
+export const BALANCE_PROFILE_IDS = [
+	"newapi",
+	"sub2api",
+	"deepseek-official",
+	"openrouter",
+] as const;
+
+export type PiBalanceProfileId = (typeof BALANCE_PROFILE_IDS)[number];
+
+export function createDefaultBalanceConfig(): Record<string, unknown> {
+	return {
+		refreshIntervalMinutes: 5,
+		profiles: Object.fromEntries(
+			BALANCE_PROFILE_IDS.map((profileId) => [profileId, {}]),
+		),
+		providers: {},
+	};
+}
+
+export function getBalanceConfigPath(agentDir = getAgentDir()): string {
+	return join(agentDir, "balance-config.yaml");
+}
 
 export const BALANCE_CONFIG_PATH = getBalanceConfigPath();
 
@@ -203,7 +222,7 @@ async function writeBalanceMutation(
 			throw new Error(
 				`${BALANCE_CONFIG_PATH} changed while editing; reopen /model-manager and retry`,
 			);
-		const source = snapshot.source ?? stringify(DEFAULT_BALANCE_CONFIG);
+		const source = snapshot.source ?? stringify(createDefaultBalanceConfig());
 		const document = parseDocument(source);
 		if (document.errors.length > 0) throw document.errors[0];
 		mutator(document, snapshot.value);
