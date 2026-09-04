@@ -131,7 +131,7 @@ export interface ModelDraft {
 	reasoningMode: ReasoningMode;
 	thinkingLevelMap?: ThinkingLevelMap;
 	cost: TokenCost;
-	anthropicThinkingProtocol:?: AnthropicThinkingProtocol;
+	anthropicThinkingProtocol?: AnthropicThinkingProtocol;
 	contextWindow: number;
 	maxTokens: number;
 	openAIServiceTier?: OpenAIServiceTier;
