@@ -87,10 +87,6 @@ function getProviderStatus(provider: StoredProvider): string {
 	return auth === "miss" || auth === "auth?" ? "check" : "ready";
 }
 
-function getProviderProxyText(provider: StoredProvider): string {
-	return provider.httpProxyEnabled ? "proxy" : "direct";
-}
-
 function formatProviderHeaderProfile(
 	provider: StoredProvider,
 	requestHeaderProfiles: Record<string, StoredRequestHeaderProfile> = {},
@@ -116,7 +112,6 @@ interface ProviderConsoleCells {
 	api: string;
 	models: string;
 	headers: string;
-	proxy: string;
 	auth: string;
 	status: string;
 }
@@ -150,11 +145,9 @@ function getProviderConsoleColumns(cells: ProviderConsoleCells, availableWidth: 
 	const api: FixedColumn = { text: cells.api, width: 9 };
 	const models: FixedColumn = { text: cells.models, width: 6, align: "right" };
 	const headers: FixedColumn = { text: cells.headers, width: 15, color: cells.headers === "Off" ? "dim" : undefined };
-	const proxy: FixedColumn = { text: cells.proxy, width: 6, color: cells.proxy === "proxy" ? "accent" : "dim" };
 	const auth: FixedColumn = { text: cells.auth, width: 6, color: getAuthColor(cells.auth) };
 	const status: FixedColumn = { text: cells.status, width: 5, color: cells.status === "ready" ? "success" : "warning" };
-	if (availableWidth >= 81) return [provider, api, models, headers, proxy, auth, status];
-	if (availableWidth >= 64) return [provider, api, models, proxy, auth, status];
+	if (availableWidth >= 74) return [provider, api, models, headers, auth, status];
 	if (availableWidth >= 48) return [provider, api, models, status];
 	return [{ ...provider, width: Math.max(10, availableWidth - 26) }, api, models, status];
 }
@@ -165,7 +158,6 @@ export function formatProviderConsoleHeader(menuWidth: number, options: Provider
 		api: "API",
 		models: t("模型"),
 		headers: t("请求头"),
-		proxy: t("代理"),
 		auth: t("认证"),
 		status: t("状态"),
 	}, Math.max(0, menuWidth - 2), options.nameWidth ?? PROVIDER_NAME_COLUMN_LIMIT)));
@@ -182,7 +174,6 @@ export function formatProviderConsoleRow(
 		api: formatApiShort(provider.api),
 		models: String(provider.models.length),
 		headers: formatProviderHeaderProfile(provider, options.requestHeaderProfiles ?? {}),
-		proxy: getProviderProxyText(provider),
 		auth: getAuthKind(provider.apiKey),
 		status: getProviderStatus(provider),
 	}, availableWidth, options.nameWidth ?? PROVIDER_NAME_COLUMN_LIMIT), options.theme);
@@ -211,7 +202,6 @@ export function formatProviderDetailLines(
 	return [
 		formatDetailTitle(getProviderDisplayLabel(providerId, provider), theme),
 		formatDetailField("endpoint", redactUrlForDisplay(provider.baseUrl), theme),
-		formatDetailField("proxy", provider.httpProxyEnabled ? redactUrlForDisplay(provider.httpProxyUrl ?? "http://127.0.0.1:7890") : "direct", theme),
 		formatDetailField("api", `${formatApiShort(provider.api)} · headers ${formatProviderHeaderProfile(provider, requestHeaderProfiles)} · auth ${getAuthKind(provider.apiKey)}`, theme),
 		formatDetailField("models", modelIds, theme),
 	];
@@ -221,12 +211,11 @@ export function formatProviderSummaryLine(
 	provider: StoredProvider,
 	requestHeaderProfiles: Record<string, StoredRequestHeaderProfile> = {},
 ): string {
-	return `${formatApiShort(provider.api)} · ${provider.models.length} ${t("模型")} · headers ${formatProviderHeaderProfile(provider, requestHeaderProfiles)} · proxy ${getProviderProxyText(provider)} · auth ${getAuthKind(provider.apiKey)}`;
+	return `${formatApiShort(provider.api)} · ${provider.models.length} ${t("模型")} · headers ${formatProviderHeaderProfile(provider, requestHeaderProfiles)} · auth ${getAuthKind(provider.apiKey)}`;
 }
 
 export function formatProviderEndpointLine(provider: StoredProvider): string {
-	const proxy = provider.httpProxyEnabled ? ` · proxy ${redactUrlForDisplay(provider.httpProxyUrl ?? "http://127.0.0.1:7890")}` : "";
-	return `endpoint  ${redactUrlForDisplay(provider.baseUrl)}${proxy}`;
+	return `endpoint  ${redactUrlForDisplay(provider.baseUrl)}`;
 }
 
 function formatModelNameCell(model: StoredModel): string {

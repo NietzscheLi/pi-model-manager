@@ -6,7 +6,7 @@ English · [简体中文](./README.md)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](./LICENSE)
 [![Version](https://img.shields.io/badge/version-0.3.2-2f81f7.svg)](https://github.com/NietzscheLi/pi-model-manager)
 
-A TUI model and provider manager for [Pi](https://github.com/earendil-works/pi). It keeps Pi's native `models.json` as the single source of truth for model configuration while adding provider/model editing, client-header identities, proxy routing, and protocol compatibility controls.
+A TUI model and provider manager for [Pi](https://github.com/earendil-works/pi). It keeps Pi's native `models.json` as the single source of truth for model configuration while adding provider/model editing, client-header identities, and protocol compatibility controls.
 
 > The current stable version is `0.3.2` and requires Pi `>=0.84.2`.
 >
@@ -21,16 +21,15 @@ The screens below are rendered by the real components at 88 columns. In practice
 /model-manager
 4 接入 · 5 模型 · 0 内置抓包 · 0 自定义请求头
 
-  接入                API          模型  请求头           代理    认证    状态
-❯ OpenAI (openai)     Responses       2  Auto→Codex       direct  env     ready
-  Claude (claude)     Claude          1  ClaudeCode       direct  env     ready
-  Gemini (gemini)     Gemini          1  Auto→不添加      direct  env     ready
-  Local vLLM (local)  Chat            1  Off              proxy   key     ready
+  接入                API          模型  请求头           认证    状态
+❯ OpenAI (openai)     Responses       2  Auto→Codex       env     ready
+  Claude (claude)     Claude          1  ClaudeCode       env     ready
+  Gemini (gemini)     Gemini          1  Auto→不添加      env     ready
+  Local vLLM (local)  Chat            1  Off              key     ready
 
 ────────────────────────────────────────────────────────────────────────────────────────
 OpenAI (openai)
   endpoint  https://api.openai.com/v1
-  proxy     direct
   api       Responses · headers Auto→Codex · auth env
   models    gpt-5.6-sol, gpt-5.6-terra
 
@@ -46,7 +45,7 @@ OpenAI (openai)
 ```text
 ────────────────────────────────────────────────────────────────────────────────────────
 /model-manager / OpenAI
-Responses · 2 模型 · headers Auto→Codex · proxy direct · auth env
+Responses · 2 模型 · headers Auto→Codex · auth env
 endpoint  https://api.openai.com/v1
 
   模型 ID         显示名    输入        Thinking   上下文
@@ -71,8 +70,6 @@ Ctrl+S 保存并同步 models.json；不切换当前会话模型
   显示名称        OpenAI
   API 协议        OpenAI Responses
 ❯ Base URL        https://api.openai.com/v1
-  本机代理        关闭
-  代理地址        关闭时不使用
   API key         $OPENAI_API_KEY
   认证头          默认
   请求头          自动推荐（Auto→Codex）
@@ -135,7 +132,6 @@ Ctrl+S 保存并启用模型；不切换当前会话模型
 - Configure context window, maximum output, vision support, and reasoning support.
 - Choose Anthropic Adaptive Thinking or Legacy Thinking.
 - Enable `service_tier=priority` (Fast mode) per OpenAI Responses model.
-- Route each provider directly or through its own HTTP(S) proxy.
 - Use recommended, disabled, Claude Code, Codex, or custom client-header profiles.
 - Reference API keys as literals, `$ENV_VAR` / `${ENV_VAR}`, or Pi `!command` values.
 - Persist configuration with a cross-process lock and recoverable two-file transactions, then re-register managed providers after saving.
@@ -202,7 +198,6 @@ Each provider can define:
 - API protocol and base URL
 - API key and authorization-header behavior
 - Client-header identity
-- Provider-specific HTTP(S) proxy
 - One or more models
 
 When adding a model, the extension attempts to fetch the upstream model list. The complete discovery flow, including authentication fallbacks, shares one 10-second limit and can be cancelled with `Esc`. You can still enter a model ID manually after failure or cancellation.
@@ -242,9 +237,9 @@ Custom profiles reject authentication-related sensitive headers. Put authenticat
 | Path | Purpose |
 | --- | --- |
 | `~/.pi/agent/models.json` | Native Pi provider and model definitions; the single source of truth for model configuration |
-| `~/.pi/agent/extensions/pi-model-manager/state.json` | Extension metadata such as header choices, custom profiles, proxy switches, and Fast mode |
+| `~/.pi/agent/extensions/pi-model-manager/state.json` | Extension metadata such as header choices, custom profiles, and Fast mode |
 
-The extension generates client headers, proxy routes, and dynamic registrations only for explicitly managed providers. Ownership requires both a managed ID in `state.json` and a `piModelManager.managed` marker on the Provider node in `models.json`; this prevents a deleted Provider ID from silently taking ownership of an unrelated native Provider that later reuses the same ID. Native providers without this ownership evidence remain unmanaged: saving unrelated settings does not rewrite their existing headers or unknown native fields. Built-in Pi providers cannot be edited or deleted through this extension.
+The extension generates client headers and dynamic registrations only for explicitly managed providers. Ownership requires both a managed ID in `state.json` and a `piModelManager.managed` marker on the Provider node in `models.json`; this prevents a deleted Provider ID from silently taking ownership of an unrelated native Provider that later reuses the same ID. Native providers without this ownership evidence remain unmanaged: saving unrelated settings does not rewrite their existing headers or unknown native fields. Built-in Pi providers cannot be edited or deleted through this extension.
 
 Plugin configuration writes are serialized with a cross-process lock, and `enabledModels` also honors Pi's `proper-lockfile` lock. An intent journal makes the `models.json` / `state.json` pair recoverable after interruption, and readers reject an in-progress half-written pair. External editors do not honor these locks, so content hashes are still checked before saving; an external change cancels the save instead of being overwritten.
 
@@ -263,7 +258,6 @@ ${ANTHROPIC_API_KEY}
 Additional considerations:
 
 - Custom client headers are not a credential store.
-- Enabling a provider proxy routes that provider's requests through the configured proxy URL.
 - Model discovery sends a network request to the configured upstream endpoint.
 - The repository ignores `state.json`, runtime logs, request captures, and other machine-specific files.
 
@@ -296,7 +290,7 @@ npm pack --dry-run
 
 ## Reporting issues
 
-Open a reproducible report in [GitHub Issues](https://github.com/NietzscheLi/pi-model-manager/issues). Remove API keys, authentication headers, proxy credentials, and private endpoints before sharing configuration or logs.
+Open a reproducible report in [GitHub Issues](https://github.com/NietzscheLi/pi-model-manager/issues). Remove API keys, authentication headers, and private endpoints before sharing configuration or logs.
 
 ## Friendly links
 

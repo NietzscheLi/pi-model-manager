@@ -41,8 +41,6 @@ interface ProviderMetadata {
 	clientHeaderProfile?: ClientHeaderProfileId;
 	requestHeaderProfileId?: string;
 	customClientHeaders?: Record<string, string>;
-	httpProxyEnabled?: boolean;
-	httpProxyUrl?: string;
 }
 
 interface ModelMetadata {
@@ -230,10 +228,6 @@ function readProviderMetadata(raw: unknown, path: string): ProviderMetadata {
 	if (requestHeaderProfileId !== undefined) metadata.requestHeaderProfileId = requestHeaderProfileId;
 	const customClientHeaders = readOptionalStringRecord(raw, "customClientHeaders", path);
 	if (customClientHeaders) metadata.customClientHeaders = customClientHeaders;
-	const httpProxyEnabled = readOptionalBoolean(raw, "httpProxyEnabled", path);
-	if (httpProxyEnabled !== undefined) metadata.httpProxyEnabled = httpProxyEnabled;
-	const httpProxyUrl = readOptionalString(raw, "httpProxyUrl", path);
-	if (httpProxyUrl !== undefined) metadata.httpProxyUrl = httpProxyUrl;
 	return metadata;
 }
 
@@ -297,10 +291,6 @@ function readStoredProvider(raw: unknown, path: string, managed: boolean): Store
 	if (managed && clientHeaderProfile === "custom" && requestHeaderProfileId !== undefined) provider.requestHeaderProfileId = requestHeaderProfileId;
 	const customClientHeaders = readOptionalStringRecord(raw, "customClientHeaders", path) ?? inferredProfile.customClientHeaders;
 	if (managed && clientHeaderProfile === "custom" && customClientHeaders) provider.customClientHeaders = customClientHeaders;
-	const httpProxyEnabled = readOptionalBoolean(raw, "httpProxyEnabled", path);
-	if (httpProxyEnabled !== undefined) provider.httpProxyEnabled = httpProxyEnabled;
-	const httpProxyUrl = readOptionalString(raw, "httpProxyUrl", path);
-	if (httpProxyUrl !== undefined) provider.httpProxyUrl = httpProxyUrl;
 	return provider;
 }
 
@@ -370,9 +360,6 @@ function extractProviderMetadata(provider: StoredProvider): ProviderMetadata {
 		metadata.clientHeaderProfile = "custom";
 		metadata.customClientHeaders = cloneJson(provider.customClientHeaders);
 	}
-	if (provider.httpProxyEnabled) metadata.httpProxyEnabled = true;
-	const httpProxyUrl = provider.httpProxyUrl?.trim();
-	if (httpProxyUrl) metadata.httpProxyUrl = httpProxyUrl;
 	return metadata;
 }
 

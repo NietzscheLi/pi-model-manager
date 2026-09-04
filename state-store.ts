@@ -210,8 +210,6 @@ async function buildStoredProviderFromModelsJson(
 	if (managed && provider.clientHeaderProfile === "custom" && hasStringRecordEntries(providerMetadata?.customClientHeaders)) {
 		provider.customClientHeaders = cloneJson(providerMetadata!.customClientHeaders!);
 	}
-	if (managed && providerMetadata?.httpProxyEnabled !== undefined) provider.httpProxyEnabled = providerMetadata.httpProxyEnabled;
-	if (managed && providerMetadata?.httpProxyUrl !== undefined) provider.httpProxyUrl = providerMetadata.httpProxyUrl;
 	return provider;
 }
 

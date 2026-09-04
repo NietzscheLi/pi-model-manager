@@ -3,7 +3,7 @@
 // StoredProvider → pi 的 ProviderConfig → pi.registerProvider 的统一桥梁。
 //
 // 设计要点：
-//   - factory 阶段只注册无需本地 server 的 catalog 配置；session_start 再激活代理 transport。
+//   - factory 阶段与 session_start 都直接以 stored 配置注册 runtime provider；保存后的完整同步入口是 reconcileProvider。
 //   - reconcileProvider 是保存后的完整 runtime 同步入口，统一处理 register/unregister 与回滚。
 //   - getClientHeadersForProfile 在这里调，把客户端请求头 profile 翻译成模型级 headers。
 
@@ -13,15 +13,9 @@ import { mergeCompatSettings } from "./compat-settings.ts";
 import { formatUnknownError } from "./common.ts";
 import { t } from "./i18n.ts";
 import {
-	getLocalProxyBaseUrl,
-	getProviderHttpProxyUrl,
-	isProviderHttpProxyEnabled,
-	removeProviderLocalProxyRoutes,
-	restoreProviderLocalProxyRoutes,
-	snapshotProviderLocalProxyRoutes,
-	type ProviderProxyRoute,
-} from "./local-proxy-service.ts";
-import { getClientHeadersForProfile, mergeModelRequestHeaders } from "./presets/client-headers.ts";
+	getClientHeadersForProfile,
+	mergeModelRequestHeaders,
+} from "./presets/client-headers.ts";
 import { resolveRuntimeBaseUrl } from "./runtime-base-url.ts";
 import type { ApiKind, BuiltInClientHeaderProfileId, StateDocument, StoredClientHeaderCapture, StoredModel, StoredProvider, StoredRequestHeaderProfile } from "./types.ts";
 
@@ -38,16 +32,6 @@ function buildProviderConfig(
 	clientHeaderCaptures: Partial<Record<BuiltInClientHeaderProfileId, StoredClientHeaderCapture>> = {},
 ): ProviderConfig {
 	const runtimeBaseUrl = resolveRuntimeBaseUrl(provider.api, provider.baseUrl);
-	return buildProviderConfigWithBaseUrl(provider, runtimeBaseUrl, requestHeaderProfiles, clientHeaderCaptures);
-}
-
-function buildProviderConfigWithBaseUrl(
-	provider: StoredProvider,
-	runtimeBaseUrl: string,
-	requestHeaderProfiles: Record<string, StoredRequestHeaderProfile>,
-	clientHeaderCaptures: Partial<Record<BuiltInClientHeaderProfileId, StoredClientHeaderCapture>>,
-	modelRuntimeBaseUrls: ReadonlyMap<string, string> = new Map(),
-): ProviderConfig {
 	const apiKey = provider.apiKey?.trim();
 	return {
 		name: provider.name,
@@ -61,39 +45,16 @@ function buildProviderConfigWithBaseUrl(
 			model,
 			requestHeaderProfiles,
 			clientHeaderCaptures,
-			modelRuntimeBaseUrls.get(model.id),
 		)),
 	};
 }
 
 async function buildRuntimeProviderConfig(
-	providerId: string,
 	provider: StoredProvider,
 	requestHeaderProfiles: Record<string, StoredRequestHeaderProfile> = {},
 	clientHeaderCaptures: Partial<Record<BuiltInClientHeaderProfileId, StoredClientHeaderCapture>> = {},
 ): Promise<ProviderConfig> {
-	const upstreamRuntimeBaseUrl = resolveRuntimeBaseUrl(provider.api, provider.baseUrl);
-	removeProviderLocalProxyRoutes(providerId);
-	if (!isProviderHttpProxyEnabled(provider)) {
-		return buildProviderConfigWithBaseUrl(provider, upstreamRuntimeBaseUrl, requestHeaderProfiles, clientHeaderCaptures);
-	}
-
-	const proxyUrl = getProviderHttpProxyUrl(provider);
-	const runtimeBaseUrl = await getLocalProxyBaseUrl(providerId, upstreamRuntimeBaseUrl, proxyUrl);
-	const modelRuntimeBaseUrls = new Map<string, string>();
-	for (const model of provider.models) {
-		const upstreamModelBaseUrl = resolveModelRuntimeBaseUrl(provider, model);
-		if (!upstreamModelBaseUrl) continue;
-		const routeId = `${providerId}/model/${model.id}`;
-		modelRuntimeBaseUrls.set(model.id, await getLocalProxyBaseUrl(routeId, upstreamModelBaseUrl, proxyUrl));
-	}
-	return buildProviderConfigWithBaseUrl(
-		provider,
-		runtimeBaseUrl,
-		requestHeaderProfiles,
-		clientHeaderCaptures,
-		modelRuntimeBaseUrls,
-	);
+	return buildProviderConfig(provider, requestHeaderProfiles, clientHeaderCaptures);
 }
 
 function asManagedApi(value: string | undefined, fallback: ApiKind): ApiKind {
@@ -134,13 +95,12 @@ function buildModelConfig(
 	model: StoredModel,
 	requestHeaderProfiles: Record<string, StoredRequestHeaderProfile>,
 	clientHeaderCaptures: Partial<Record<BuiltInClientHeaderProfileId, StoredClientHeaderCapture>>,
-	runtimeBaseUrl?: string,
 ): ProviderModelConfig {
 	return {
 		id: model.id,
 		name: model.name ?? model.id,
 		api: model.api as ProviderModelConfig["api"],
-		baseUrl: runtimeBaseUrl ?? resolveModelRuntimeBaseUrl(provider, model),
+		baseUrl: resolveModelRuntimeBaseUrl(provider, model),
 		reasoning: model.reasoning,
 		thinkingLevelMap: model.thinkingLevelMap,
 		input: model.input,
@@ -161,9 +121,8 @@ function resolveProviderCustomHeaders(
 	return provider.customClientHeaders ?? {};
 }
 
-/** 注销本扩展实际注册的动态 provider，并同步清理代理路由和回滚快照。 */
+/** 注销本扩展实际注册的动态 provider。 */
 export function unregisterManagedProvider(pi: ExtensionAPI, providerId: string): void {
-	removeProviderLocalProxyRoutes(providerId);
 	const wasRegistered = REGISTERED_PROVIDER_CONFIGS.delete(providerId);
 	if (wasRegistered) pi.unregisterProvider(providerId);
 }
@@ -176,7 +135,6 @@ function replaceManagedProviderConfig(
 	pi: ExtensionAPI,
 	providerId: string,
 	nextConfig: ProviderConfig,
-	previousRoutes: ReadonlyMap<string, ProviderProxyRoute>,
 ): void {
 	const previousConfig = REGISTERED_PROVIDER_CONFIGS.get(providerId);
 	try {
@@ -184,7 +142,6 @@ function replaceManagedProviderConfig(
 		pi.registerProvider(providerId, nextConfig);
 		REGISTERED_PROVIDER_CONFIGS.set(providerId, nextConfig);
 	} catch (error) {
-		restoreProviderLocalProxyRoutes(providerId, previousRoutes);
 		let rollbackError: unknown;
 		try {
 			if (previousConfig) {
@@ -220,15 +177,8 @@ export async function reconcileProvider(
 		return;
 	}
 
-	const previousRoutes = snapshotProviderLocalProxyRoutes(providerId);
-	let nextConfig: ProviderConfig;
-	try {
-		nextConfig = await buildRuntimeProviderConfig(providerId, provider, requestHeaderProfiles, clientHeaderCaptures);
-	} catch (error) {
-		restoreProviderLocalProxyRoutes(providerId, previousRoutes);
-		throw error;
-	}
-	replaceManagedProviderConfig(pi, providerId, nextConfig, previousRoutes);
+	const nextConfig = await buildRuntimeProviderConfig(provider, requestHeaderProfiles, clientHeaderCaptures);
+	replaceManagedProviderConfig(pi, providerId, nextConfig);
 }
 
 async function reconcileProviderCatalog(
@@ -242,10 +192,8 @@ async function reconcileProviderCatalog(
 		unregisterManagedProvider(pi, providerId);
 		return;
 	}
-	const previousRoutes = snapshotProviderLocalProxyRoutes(providerId);
-	removeProviderLocalProxyRoutes(providerId);
 	const nextConfig = buildProviderConfig(provider, requestHeaderProfiles, clientHeaderCaptures);
-	replaceManagedProviderConfig(pi, providerId, nextConfig, previousRoutes);
+	replaceManagedProviderConfig(pi, providerId, nextConfig);
 }
 
 type StateProviderReconciler = (
@@ -278,7 +226,7 @@ async function reconcileAllFromState(
 	return warnings;
 }
 
-/** factory 阶段仅注册模型 catalog，不启动长生命周期本地代理。 */
+/** factory 阶段仅注册模型 catalog。 */
 export async function registerCatalogFromState(pi: ExtensionAPI, document: StateDocument): Promise<string[]> {
 	return reconcileAllFromState(pi, document, reconcileProviderCatalog);
 }

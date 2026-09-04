@@ -1,7 +1,7 @@
 // pi-model-manager 主入口
 //
-// factory 阶段（pi 会等待）读取配置并注册模型 catalog，但不启动长生命周期本地代理。
-// session_start 再激活完整 provider transport，session_shutdown 幂等关闭代理服务。
+// factory 阶段（pi 会等待）读取配置并注册模型 catalog；
+// session_start 再激活完整 provider transport。
 //
 // models.json 是模型定义唯一来源；state.json 只保存请求头 profile、抓包缓存、service_tier 等插件私有元数据。
 // 启动期通知用 session_start 事件 + ctx.ui.notify（factory 期没有 ctx）。
@@ -15,7 +15,6 @@ import { readUiLanguage } from "./ui-language-settings.ts";
 import { persistManagedConfiguration, recoverPendingConfigurationTransaction } from "./configuration-persistence.ts";
 import { resetClaudeCodeMetadataSession } from "./claude-code-compat.ts";
 import { findProvidersNeedingBaseUrlNormalization, normalizeProviderBaseUrlsInDocument } from "./state-document.ts";
-import { closeLocalProxyServer } from "./local-proxy-service.ts";
 import { registerAllFromState, registerCatalogFromState } from "./provider-registrar.ts";
 import { createRequestPipeline } from "./request-pipeline.ts";
 import { createEmptyState, readState } from "./state-store.ts";
@@ -108,9 +107,6 @@ export default async function modelManagerExtension(pi: ExtensionAPI): Promise<v
 	});
 
 	pi.on("before_provider_request", async (event, ctx) => requestPipeline.transform(event.payload, ctx));
-	pi.on("session_shutdown", async () => {
-		await closeLocalProxyServer();
-	});
 
 	// ---- 3. 命令：/model-manager → TUI 面板 ----
 	pi.registerCommand("model-manager", {

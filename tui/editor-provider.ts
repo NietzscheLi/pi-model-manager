@@ -7,9 +7,7 @@ import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { hasStringRecordEntries } from "../common.ts";
 import { t } from "../i18n.ts";
 import { switchProviderDraftApiPreset } from "../presets/providers.ts";
-import { redactUrlForDisplay } from "../sensitive-redaction.ts";
 import { resolveRuntimeBaseUrl } from "../runtime-base-url.ts";
-import { DEFAULT_PROVIDER_HTTP_PROXY_URL } from "../types.ts";
 import { showOptionPicker, showPersistentFormMenu, padLabel, type MenuCursor } from "./persistent-menu.ts";
 import {
 	describeProfile,
@@ -43,8 +41,6 @@ function buildRows(
 		{ id: "providerId", label: t("接入 ID（必填）"), value: draft.providerId || t("<必填>") },
 		{ id: "providerName", label: t("名称"), value: draft.providerName || t("<空>") },
 		{ id: "baseUrl", label: "Base URL", value: draft.baseUrl },
-		{ id: "httpProxyEnabled", label: t("本机代理"), value: draft.httpProxyEnabled ? t("开启") : t("关闭"), adjustable: true },
-		{ id: "httpProxyUrl", label: t("代理地址"), value: draft.httpProxyEnabled ? redactUrlForDisplay(draft.httpProxyUrl || DEFAULT_PROVIDER_HTTP_PROXY_URL) : t("关闭时不使用") },
 		{ id: "apiKey", label: "API key", value: maskSecret(draft.apiKey) },
 		{ id: "authHeader", label: t("认证头"), value: draft.authHeader ? "Bearer" : t("默认") },
 		{ id: "clientHeaderProfile", label: t("请求头"), value: profileDisplay },
@@ -55,10 +51,7 @@ function buildRows(
 
 // 开关字段在两个方向上都是取反，因此不看 direction；返回是否真的切换了字段。
 function applyHorizontalToggle(draft: ProviderDraft, fieldId: string): boolean {
-	if (fieldId !== "httpProxyEnabled") return false;
-	draft.httpProxyEnabled = !draft.httpProxyEnabled;
-	if (draft.httpProxyEnabled && !draft.httpProxyUrl.trim()) draft.httpProxyUrl = DEFAULT_PROVIDER_HTTP_PROXY_URL;
-	return true;
+	return false;
 }
 
 async function editClientHeaderProfile(
@@ -117,21 +110,6 @@ async function editField(
 		await editClientHeaderProfile(ctx, draft, requestHeaderProfiles);
 		return;
 	}
-	if (fieldId === "httpProxyEnabled") {
-		const choice = await showOptionPicker(
-			ctx,
-			t("本机代理（仅当前接入点）"),
-			[
-				{ id: "disabled", label: t("关闭 — 请求直连上游") },
-				{ id: "enabled", label: t("开启 — 通过 {url}", { url: redactUrlForDisplay(draft.httpProxyUrl || DEFAULT_PROVIDER_HTTP_PROXY_URL) }) },
-			],
-			draft.httpProxyEnabled ? "enabled" : "disabled",
-		);
-		if (!choice) return;
-		draft.httpProxyEnabled = choice.id === "enabled";
-		if (draft.httpProxyEnabled && !draft.httpProxyUrl.trim()) draft.httpProxyUrl = DEFAULT_PROVIDER_HTTP_PROXY_URL;
-		return;
-	}
 	if (fieldId === "providerId") {
 		const value = await ctx.ui.input(
 			t("接入 ID（必填，最多 48 个字符；仅字母、数字、点、下划线和连字符；当前：{current}）", { current: draft.providerId || t("<空>") }),
@@ -143,12 +121,6 @@ async function editField(
 	if (fieldId === "providerName") {
 		const value = await ctx.ui.input(t("名称（显示用，可留空；当前：{current}）", { current: draft.providerName || t("<空>") }), draft.providerName);
 		if (value !== undefined) draft.providerName = value.trim();
-		return;
-	}
-	if (fieldId === "httpProxyUrl") {
-		const currentLabel = redactUrlForDisplay(draft.httpProxyUrl || DEFAULT_PROVIDER_HTTP_PROXY_URL);
-		const value = await ctx.ui.input(t("代理地址（http/https；当前：{current}，留空保持原值）", { current: currentLabel }), "");
-		if (value?.trim()) draft.httpProxyUrl = value.trim();
 		return;
 	}
 	if (fieldId === "apiKey") {

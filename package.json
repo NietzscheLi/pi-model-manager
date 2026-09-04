@@ -1,7 +1,7 @@
 {
   "name": "pi-model-manager",
   "version": "0.3.2",
-  "description": "A TUI model and provider manager for Pi with native models.json persistence, request-header profiles, proxy routing, and protocol compatibility.",
+  "description": "A TUI model and provider manager for Pi with native models.json persistence, request-header profiles, and protocol compatibility.",
   "type": "module",
   "main": "./index.ts",
   "scripts": {
@@ -24,7 +24,6 @@
     "models-json-manager.ts",
     "models-json-sync.ts",
     "provider-registrar.ts",
-    "local-proxy-service.ts",
     "request-pipeline.ts",
     "model-mutations.ts",
     "model-metadata.ts",
@@ -75,8 +74,6 @@
     "@earendil-works/pi-tui": ">=0.75.0"
   },
   "dependencies": {
-    "http-proxy-agent": "^9.1.0",
-    "https-proxy-agent": "^9.1.0",
     "minimatch": "^10.2.6",
     "proper-lockfile": "^4.1.2",
     "yaml": "^2.8.1"

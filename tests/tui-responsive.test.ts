@@ -30,8 +30,6 @@ const provider: StoredProvider = {
 	apiKey: "plaintext-key",
 	managed: true,
 	clientHeaderProfile: "recommended",
-	httpProxyEnabled: true,
-	httpProxyUrl: "http://127.0.0.1:7890",
 	models: [model],
 };
 
@@ -48,7 +46,7 @@ test("Provider 表格在 60/80/100 列按宽度降级且保留核心字段", () 
 		assert.match(header, /状态/);
 	}
 	assert.doesNotMatch(formatProviderConsoleHeader(60), /请求头/);
-	assert.match(formatProviderConsoleHeader(80), /代理/);
+	assert.doesNotMatch(formatProviderConsoleHeader(80), /代理/);
 	assert.match(formatProviderConsoleHeader(100), /请求头/);
 });
 

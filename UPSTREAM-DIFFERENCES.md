@@ -14,7 +14,6 @@
 | 模型元数据 | 使用配置中已有的模型字段 | 保存模型时可从 `models.dev` 或 OpenRouter 同步 context、max tokens、输入模态、推理能力、thinking level 和 cost |
 | 元数据来源 | 无本扩展提供的来源选择器 | 默认 `models.dev`，也支持 OpenRouter 和手工保留 |
 | 请求头身份 | 使用 Pi 原生 Provider 行为 | 增加 Recommended、Disabled、Claude Code、Codex 和可复用 Custom profile |
-| Provider 代理 | 使用 Pi 原生配置 | 可在 `/model-manager` 为每个 Provider 配置 HTTP(S) 代理 |
 | 配置保存 | 由配置文件自身负责 | 使用跨进程锁、内容签名和可恢复事务，避免并发保存覆盖配置 |
 | 界面语言 | 使用 Pi 默认界面语言 | 扩展界面默认简体中文，可按 `L` 切换 English |
 

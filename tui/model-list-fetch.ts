@@ -4,7 +4,6 @@
 import { ModelRuntime, type ProviderConfig } from "@earendil-works/pi-coding-agent";
 import { formatUnknownError } from "../common.ts";
 import { t } from "../i18n.ts";
-import { openTemporaryLocalProxyRoute, type TemporaryLocalProxyRoute } from "../local-proxy-service.ts";
 import { getClientHeadersForProfile } from "../presets/client-headers.ts";
 import { appendUrlPath, resolveRuntimeBaseUrl } from "../runtime-base-url.ts";
 import { isSensitiveHeaderName, redactSensitiveText } from "../sensitive-redaction.ts";
@@ -138,45 +137,17 @@ async function resolveFetchAuth(
 	};
 }
 
-interface ModelListProxyConfig {
-	providerId: string;
-	proxyUrl: string;
-}
-
-async function openProxyRouteWithSignal(
-	proxyConfig: ModelListProxyConfig,
-	url: string,
-	signal: AbortSignal,
-): Promise<TemporaryLocalProxyRoute> {
-	const routePromise = openTemporaryLocalProxyRoute(proxyConfig.providerId, url, proxyConfig.proxyUrl);
-	try {
-		return await waitWithSignal(routePromise, signal);
-	} catch (error) {
-		routePromise.then((route) => route.close(), () => undefined);
-		throw error;
-	}
-}
-
 async function requestModelIds(
 	url: string,
 	headers: Record<string, string>,
 	api: ApiKind,
-	proxyConfig: ModelListProxyConfig | undefined,
 	signal: AbortSignal,
 ): Promise<string[]> {
 	throwIfAborted(signal);
-	let temporaryProxyRoute: TemporaryLocalProxyRoute | undefined;
-	try {
-		temporaryProxyRoute = proxyConfig
-			? await openProxyRouteWithSignal(proxyConfig, url, signal)
-			: undefined;
-		const response = await fetch(temporaryProxyRoute?.url ?? url, { headers, signal });
-		const text = await readBoundedResponseText(response, signal);
-		if (!response.ok) throw new Error(`HTTP ${response.status}: ${text.slice(0, 240)}`);
-		return extractValidatedModelIds(JSON.parse(text), api);
-	} finally {
-		temporaryProxyRoute?.close();
-	}
+	const response = await fetch(url, { headers, signal });
+	const text = await readBoundedResponseText(response, signal);
+	if (!response.ok) throw new Error(`HTTP ${response.status}: ${text.slice(0, 240)}`);
+	return extractValidatedModelIds(JSON.parse(text), api);
 }
 
 export interface FetchModelIdsParams {
@@ -187,8 +158,6 @@ export interface FetchModelIdsParams {
 	authHeader?: boolean;
 	clientHeaderProfile: ClientHeaderProfileId;
 	customClientHeaders: Record<string, string>;
-	httpProxyEnabled: boolean;
-	httpProxyUrl: string;
 	clientHeaderCaptures?: Partial<Record<BuiltInClientHeaderProfileId, StoredClientHeaderCapture>>;
 }
 
@@ -206,16 +175,12 @@ async function fetchModelIdsWithSignal(
 	const auth = await resolveFetchAuth(params, profileHeaders, signal);
 	redactionSecrets.push(...auth.redactionSecrets);
 	const headers: Record<string, string> = { Accept: "application/json", ...auth.headers };
-	const proxyConfig = params.httpProxyEnabled
-		? { providerId: params.providerId, proxyUrl: params.httpProxyUrl }
-		: undefined;
 
 	if (params.api === "google-generative-ai") {
 		const modelIds = await requestModelIds(
 			buildGoogleUrl(resolveRuntimeBaseUrl(params.api, params.baseUrl), auth.apiKey),
 			headers,
 			params.api,
-			proxyConfig,
 			signal,
 		);
 		return { status: "loaded", modelIds };
@@ -225,7 +190,7 @@ async function fetchModelIdsWithSignal(
 		const anthropicVersion = headers["anthropic-version"] ?? "2023-06-01";
 		const apiKeyHeaders = { ...headers, "x-api-key": auth.apiKey, "anthropic-version": anthropicVersion };
 		try {
-			const modelIds = await requestModelIds(buildAnthropicUrl(params.baseUrl), apiKeyHeaders, params.api, proxyConfig, signal);
+			const modelIds = await requestModelIds(buildAnthropicUrl(params.baseUrl), apiKeyHeaders, params.api, signal);
 			return { status: "loaded", modelIds };
 		} catch {
 			throwIfAborted(signal);
@@ -233,13 +198,13 @@ async function fetchModelIdsWithSignal(
 		const bearerHeaders: Record<string, string> = { ...headers, Authorization: `Bearer ${auth.apiKey}`, "anthropic-version": anthropicVersion };
 		delete bearerHeaders["x-api-key"];
 		try {
-			const modelIds = await requestModelIds(buildAnthropicUrl(params.baseUrl), bearerHeaders, params.api, proxyConfig, signal);
+			const modelIds = await requestModelIds(buildAnthropicUrl(params.baseUrl), bearerHeaders, params.api, signal);
 			return { status: "loaded", modelIds };
 		} catch {
 			throwIfAborted(signal);
 		}
 		const fallbackHeaders = { ...headers, Authorization: `Bearer ${auth.apiKey}` };
-		const modelIds = await requestModelIds(buildOriginOpenAIUrl(params.baseUrl), fallbackHeaders, params.api, proxyConfig, signal);
+		const modelIds = await requestModelIds(buildOriginOpenAIUrl(params.baseUrl), fallbackHeaders, params.api, signal);
 		return { status: "loaded", modelIds };
 	}
 
@@ -247,7 +212,6 @@ async function fetchModelIdsWithSignal(
 		buildOpenAIUrl(params.baseUrl, params.api),
 		{ ...headers, Authorization: `Bearer ${auth.apiKey}` },
 		params.api,
-		proxyConfig,
 		signal,
 	);
 	return { status: "loaded", modelIds };

@@ -202,7 +202,7 @@ test("矮终端优先保留快捷键提示，详情与摘要依次让位", () =>
 	const menuOptions: PersistentMenuOptions = {
 		summaryLines: ["8 接入 · 7 模型"],
 		tableHeader: "  接入        API",
-		getDetailLines: () => ["Relay (relay)", "  endpoint  https://api.example.com/v1", "  proxy     direct"],
+		getDetailLines: () => ["Relay (relay)", "  endpoint  https://api.example.com/v1"],
 		hints: [
 			{ key: "↑↓", label: "选择" },
 			{ key: "Enter", label: "进入" },
