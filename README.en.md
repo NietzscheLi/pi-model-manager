@@ -4,11 +4,11 @@ English · [简体中文](./README.md)
 
 [![Pi](https://img.shields.io/badge/Pi-%3E%3D0.84.2-6f42c1)](https://github.com/earendil-works/pi)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-0.3.2-2f81f7.svg)](https://github.com/NietzscheLi/pi-model-manager)
+[![Version](https://img.shields.io/badge/version-0.3.4-2f81f7.svg)](https://github.com/NietzscheLi/pi-model-manager)
 
 A TUI model and provider manager for [Pi](https://github.com/earendil-works/pi). It keeps Pi's native `models.json` as the single source of truth for model configuration while adding provider/model editing, client-header identities, and protocol compatibility controls.
 
-> The current stable version is `0.3.2` and requires Pi `>=0.84.2`.
+> The current stable version is `0.3.4` and requires Pi `>=0.84.2`.
 >
 > This project is a maintained fork of [Qihuanxishini/pi-model-manager](https://github.com/Qihuanxishini/pi-model-manager). It is distributed under the [AGPL-3.0 license](./LICENSE). When redistributing a modified version you must retain the copyright and license notices, provide the corresponding source, and clearly mark your changes.
 
@@ -128,6 +128,7 @@ Ctrl+S 保存并启用模型；不切换当前会话模型
 - Create, edit, and delete providers and models from the `/model-manager` TUI.
 - Start in Simplified Chinese and press `L` on the dashboard to switch to English; the language preference is saved.
 - Supports `openai-completions`, `openai-responses`, `anthropic-messages`, and `google-generative-ai`.
+- Choose Pi's standard default behavior or a `system`-role compatibility mode for OpenAI Chat providers.
 - Fetch model IDs from compatible upstream APIs or enter them manually.
 - Configure context window, maximum output, vision support, and reasoning support.
 - Choose Anthropic Adaptive Thinking or Legacy Thinking.
@@ -212,6 +213,17 @@ Model capabilities include:
 - Anthropic Adaptive/Legacy Thinking
 - OpenAI Responses Fast mode
 - Context window and maximum output tokens
+
+### Chat protocol compatibility
+
+When the API protocol is `openai-completions` (OpenAI Chat), the provider editor shows **Protocol compatibility**. Switch with `←` / `→`, or press `Enter` for the full descriptions; the setting applies to every model in that provider.
+
+| Mode | Persisted behavior | Use when |
+| --- | --- | --- |
+| Standard · Pi default | Removes the `compat.supportsDeveloperRole` override and retains Pi's default endpoint compatibility decision | A regular Chat provider |
+| Compatible · system | Writes `compat.supportsDeveloperRole: false`; system prompts for reasoning models use the `system` role | A gateway does not correctly handle the `developer` role, causing system prompts or persona instructions to fail |
+
+Use **Standard · Pi default** first. Select **Compatible · system** only when the endpoint requires the `system` role; switching back to Standard restores Pi's default decision.
 
 ## Client-header profiles
 

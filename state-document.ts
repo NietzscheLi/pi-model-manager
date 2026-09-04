@@ -23,6 +23,7 @@ import { resolveRuntimeBaseUrl } from "./runtime-base-url.ts";
 import type {
 	ApiKind,
 	CompatSettings,
+	OpenAIChatCompatibilityMode,
 	ModelDraft,
 	ProviderDraft,
 	RequestHeaderProfileDraft,
@@ -42,6 +43,10 @@ const RESERVED_REQUEST_HEADER_PROFILE_IDS = new Set(["claude-code", "codex-cli",
 
 function isApiKind(value: unknown): value is ApiKind {
 	return typeof value === "string" && API_KINDS.includes(value as ApiKind);
+}
+
+function getOpenAIChatCompatibilityMode(compat: CompatSettings | undefined): OpenAIChatCompatibilityMode {
+	return compat?.supportsDeveloperRole === false ? "compatible" : "standard";
 }
 
 export function getModelFullId(providerId: string, modelId: string): string {
@@ -77,6 +82,7 @@ export function createProviderDraft(api: ApiKind = "openai-responses"): Provider
 		providerId: "",
 		providerName: preset.defaultProviderName,
 		api,
+		openAIChatCompatibilityMode: "standard",
 		baseUrl: preset.baseUrl,
 		apiKey: preset.apiKey,
 		authHeader: preset.authHeader,
@@ -93,6 +99,7 @@ export function createProviderDraftFromStored(providerId: string, stored: Stored
 		providerId,
 		providerName: stored.name ?? (providerId.replace(/^custom-/, "") || preset.defaultProviderName),
 		api,
+		openAIChatCompatibilityMode: getOpenAIChatCompatibilityMode(stored.compat),
 		baseUrl: stored.baseUrl ?? preset.baseUrl,
 		apiKey: stored.apiKey ?? "",
 		authHeader: stored.authHeader ?? preset.authHeader,
@@ -260,6 +267,10 @@ export function getProviderChangeWarnings(
 	if ((current.apiKey ?? "") !== draft.apiKey.trim()) changes.push("API key");
 	if ((current.api ?? "") !== draft.api) changes.push(t("API 协议"));
 	if ((current.authHeader ?? false) !== draft.authHeader) changes.push(t("认证头"));
+	if (draft.api === "openai-completions"
+		&& getOpenAIChatCompatibilityMode(current.compat) !== (draft.openAIChatCompatibilityMode ?? "standard")) {
+		changes.push(t("协议兼容"));
+	}
 	if ((current.clientHeaderProfile ?? "recommended") !== draft.clientHeaderProfile
 		|| (current.requestHeaderProfileId ?? "") !== (draft.requestHeaderProfileId ?? ""))
 		changes.push(t("请求头"));
@@ -326,6 +337,13 @@ function buildProviderFromDraft(
 	} else {
 		delete next.customClientHeaders;
 	}
+	if (draft.api === "openai-completions" && draft.openAIChatCompatibilityMode !== undefined) {
+		const compat: CompatSettings = cloneJson(next.compat) ?? {};
+		if (draft.openAIChatCompatibilityMode === "standard") delete compat.supportsDeveloperRole;
+		else compat.supportsDeveloperRole = false;
+		if (Object.keys(compat).length > 0) next.compat = compat;
+		else delete next.compat;
+	}
 	return next;
 }
 
@@ -338,7 +356,7 @@ export function buildModelFromDraft(
 	const reasoning = draft.reasoningMode === "enabled";
 	const compat: CompatSettings = cloneJson(existing?.compat) ?? {};
 	const effectiveApi = isApiKind(existing?.api) ? existing.api : draft.api;
-	const storedThinkingLevelMap = cloneJson(draft.thinkingLevelMap) ?? cloneJson(existing?.thinkingLevelMap);
+	const storedThinkingLevelMap = cloneJson(existing?.thinkingLevelMap);
 	const thinkingLevelMap = normalizeThinkingLevelMap(effectiveApi, reasoning, storedThinkingLevelMap);
 
 	const next: StoredModel = {
@@ -347,7 +365,7 @@ export function buildModelFromDraft(
 		input: [...draft.inputKinds],
 		contextWindow: draft.contextWindow,
 		maxTokens: draft.maxTokens,
-		cost: cloneJson(draft.cost) ?? { ...ZERO_COST },
+		cost: cloneJson(existing?.cost) ?? { ...ZERO_COST },
 	};
 	if (existing?.api) next.api = existing.api;
 	if (existing?.baseUrl) next.baseUrl = existing.baseUrl;

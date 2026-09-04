@@ -13,6 +13,7 @@ export type ThinkingLevelMap = Partial<Record<ThinkingLevel, string | null>>;
 type ModelMetadataSource = "models.dev" | "openrouter" | "manual";
 export type ReasoningMode = "enabled" | "disabled";
 export type AnthropicThinkingProtocol = "adaptive" | "legacy";
+export type OpenAIChatCompatibilityMode = "standard" | "compatible";
 export type BuiltInClientHeaderProfileId = "claude-code" | "codex-cli";
 export type ClientHeaderProfileId = "recommended" | "disabled" | BuiltInClientHeaderProfileId | "custom";
 export type CompatSettings = Record<string, unknown>;
@@ -102,12 +103,15 @@ export interface ProviderDraft {
 	providerId: string;
 	providerName: string;
 	api: ApiKind;
+	/** Chat Completions 系统提示词兼容模式；standard 保持 Pi 默认判断。 */
+	openAIChatCompatibilityMode?: OpenAIChatCompatibilityMode;
 	baseUrl: string;
 	apiKey: string;
 	authHeader: boolean;
 	clientHeaderProfile: ClientHeaderProfileId;
 	requestHeaderProfileId?: string;
 	customClientHeaders: Record<string, string>;
+	selectedIndex: number;
 }
 
 export interface ModelDraft {
@@ -127,7 +131,7 @@ export interface ModelDraft {
 	reasoningMode: ReasoningMode;
 	thinkingLevelMap?: ThinkingLevelMap;
 	cost: TokenCost;
-	anthropicThinkingProtocol?: AnthropicThinkingProtocol;
+	anthropicThinkingProtocol:?: AnthropicThinkingProtocol;
 	contextWindow: number;
 	maxTokens: number;
 	openAIServiceTier?: OpenAIServiceTier;
