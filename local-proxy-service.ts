@@ -178,7 +178,8 @@ function forwardPlainHttp(target: URL, proxy: URL, request: IncomingMessage, res
 	bindClientAbort(request, response, upstreamRequest);
 	upstreamRequest.on("error", (error) => writeUpstreamRequestError(response, error));
 	// [喵喵喵]: 请求体直接流向上游，避免图像等大 payload 在本地代理中形成完整内存副本 (2026-07-17)
-	request.pipe(upstreamRequest);
+	// [喵喵喵]: 等代理完成请求头重建后再流式读取 body，避免 chunked 请求在异步建连期间重复写入 HTTP 头。
+	upstreamRequest.once("socket", () => request.pipe(upstreamRequest));
 }
 
 function forwardHttps(target: URL, proxy: URL, request: IncomingMessage, response: ServerResponse): void {
@@ -196,7 +197,7 @@ function forwardHttps(target: URL, proxy: URL, request: IncomingMessage, respons
 	upstreamRequest.once("close", () => agent.destroy());
 	bindClientAbort(request, response, upstreamRequest);
 	upstreamRequest.on("error", (error) => writeUpstreamRequestError(response, error));
-	request.pipe(upstreamRequest);
+	upstreamRequest.once("socket", () => request.pipe(upstreamRequest));
 }
 
 function forwardRequest(route: ProviderProxyRoute, request: IncomingMessage, response: ServerResponse, routePath: string): void {

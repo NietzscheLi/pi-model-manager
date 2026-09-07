@@ -12,45 +12,37 @@ import { injectOpenAIServiceTier } from "./openai-service-tier.ts";
 import { readCachedState } from "./state-cache.ts";
 import type { StateDocument } from "./types.ts";
 
-type StateLoader = () => Promise<StateDocument>;
 
 type RequestTransform = {
 	id: string;
 	warning: MessageKey;
-	run(payload: unknown, ctx: ExtensionContext, loadState: StateLoader): Promise<unknown | undefined> | unknown | undefined;
+	run(payload: unknown, ctx: ExtensionContext, state: StateDocument): unknown | undefined;
 };
 
-function createRequestStateLoader(): StateLoader {
-	let statePromise: Promise<StateDocument> | undefined;
-	return () => {
-		statePromise ??= readCachedState();
-		return statePromise;
-	};
-}
 
 const REQUEST_TRANSFORMS: RequestTransform[] = [
 	{
 		id: "claude-code-metadata",
 		warning: "ClaudeCode metadata 注入失败，本次请求仅使用请求头",
-		async run(payload, ctx, loadState) {
+		run(payload, ctx, state) {
 			if (!ctx.model || ctx.model.api !== "anthropic-messages") return undefined;
-			return injectClaudeCodeMetadata(payload, ctx.model, await loadState());
+			return injectClaudeCodeMetadata(payload, ctx.model, state);
 		},
 	},
 	{
 		id: "openai-responses-instructions",
 		warning: "OpenAI Responses instructions 标准化失败，本次请求使用原始 payload",
-		async run(payload, ctx, loadState) {
+		run(payload, ctx, state) {
 			if (!ctx.model || ctx.model.api !== "openai-responses") return undefined;
-			return normalizeManagedOpenAIResponsesPayload(payload, ctx.model, await loadState());
+			return normalizeManagedOpenAIResponsesPayload(payload, ctx.model, state);
 		},
 	},
 	{
 		id: "openai-service-tier",
 		warning: "Fast mode 状态读取失败，本次请求未注入 service_tier",
-		async run(payload, ctx, loadState) {
+		run(payload, ctx, state) {
 			if (!ctx.model || ctx.model.api !== "openai-responses") return undefined;
-			return injectOpenAIServiceTier(payload, ctx.model, await loadState());
+			return injectOpenAIServiceTier(payload, ctx.model, state);
 		},
 	},
 ];
@@ -66,11 +58,24 @@ export function createRequestPipeline(): RequestPipeline {
 		async transform(initialPayload, ctx) {
 			let payload = initialPayload;
 			let changed = false;
-			const loadState = createRequestStateLoader();
+			if (!ctx.model || (ctx.model.api !== "anthropic-messages" && ctx.model.api !== "openai-responses")) return undefined;
+			let state: StateDocument;
+			try {
+				state = await readCachedState();
+			} catch (error) {
+				if (ctx.hasUI && !notifiedTransformErrors.has("state")) {
+					notifiedTransformErrors.add("state");
+					ctx.ui.notify(`[pi-model-manager] ${t("请求配置读取失败，本次使用原始 payload")}: ${formatUnknownError(error)}`, "warning");
+				}
+				return undefined;
+			}
+			const provider = state.providers[ctx.model.provider];
+			const storedModel = provider?.models.find((model) => model.id === ctx.model!.id);
+			if (!provider?.managed || !storedModel || (storedModel.api ?? provider.api) !== ctx.model.api) return undefined;
 
 			for (const transform of REQUEST_TRANSFORMS) {
 				try {
-					const nextPayload = await transform.run(payload, ctx, loadState);
+					const nextPayload = await transform.run(payload, ctx, state);
 					if (nextPayload !== undefined) {
 						payload = nextPayload;
 						changed = true;

@@ -5,6 +5,19 @@ export type UiLanguage = (typeof SUPPORTED_UI_LANGUAGES)[number];
 export const DEFAULT_UI_LANGUAGE: UiLanguage = "zh-CN";
 
 const ENGLISH_MESSAGES = {
+	"Base URL 必须使用 http 或 https": "Base URL must use http or https",
+	"Base URL 不支持查询参数（?）或片段（#）；请填写 API 根地址": "Base URL cannot contain query parameters (?) or fragments (#); enter the API root URL",
+	"Base URL 不支持内嵌认证；请使用 API key 或请求头配置": "Base URL cannot contain credentials; use the API key or header configuration",
+	"请求模型不属于当前接入配置：{modelId}": "Request model is not part of the current provider configuration: {modelId}",
+	"该协议尚不支持接入级代理：{api}": "Provider-level proxy is not supported for this API: {api}",
+	"Anthropic 请求路径与当前适配契约不符": "Anthropic request path does not match the transport contract",
+	"无法构建接入：{providerId}": "Failed to construct provider: {providerId}",
+	"请求配置读取失败，本次使用原始 payload": "Failed to read request configuration; using the original payload",
+	"认证失败，请检查 API key 和认证头": "Authentication failed; check the API key and authentication headers",
+	"模型列表接口不存在，可继续手动添加模型": "The model list endpoint is unavailable; models can still be added manually",
+	"模型列表请求被限流，请稍后重试": "The model list request was rate-limited; try again later",
+	"模型列表上游服务异常": "The upstream model list service failed",
+	"模型列表请求失败": "The model list request failed",
 	"语言 / Language": "Language",
 	"简体中文": "Simplified Chinese",
 	"English": "English",
@@ -221,7 +234,9 @@ const ENGLISH_MESSAGES = {
 	"读取/注册模型配置失败：{error}": "Failed to read/register the model configuration: {error}",
 	"激活模型接入失败：{warning}": "Failed to activate a model provider: {warning}",
 	"恢复、读取或激活模型配置失败：{error}": "Failed to recover, read, or activate the model configuration: {error}",
-	"[pi-model-manager] 已补全 {count} 个接入的请求地址（{providerIds}），现在 models.json 存的就是实际请求根地址": "[pi-model-manager] Normalized request URLs for {count} provider(s) ({providerIds}); models.json now contains the actual request root URLs",
+	"[pi-model-manager] 已规范化 {count} 个接入的 API 根地址（{providerIds}）": "[pi-model-manager] Normalized API root URLs for {count} provider(s) ({providerIds})",
+	"[pi-model-manager] 已升级端点配置；迁移前快照保存在插件配置目录的 base-url-v5-*.json": "[pi-model-manager] Endpoint configuration upgraded; pre-migration snapshots are saved as base-url-v5-*.json in the plugin configuration directory",
+	"迁移备份内容不匹配：{path}": "Migration backup content does not match: {path}",
 
 	"{label} JSON 必须是对象": "{label} JSON must be an object",
 	"{label} {key} 的值必须是字符串": "The value of {label} {key} must be a string",

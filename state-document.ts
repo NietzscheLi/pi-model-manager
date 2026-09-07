@@ -19,7 +19,7 @@ import { joinLocalizedList, t } from "./i18n.ts";
 import { findPresetForApi } from "./presets/providers.ts";
 import { normalizeThinkingLevelMap } from "./presets/thinking.ts";
 import { isSensitiveHeaderName } from "./sensitive-redaction.ts";
-import { resolveRuntimeBaseUrl } from "./runtime-base-url.ts";
+import { fromNativeBaseUrl, resolveRuntimeBaseUrl, validateRequestBaseUrl } from "./runtime-base-url.ts";
 import type {
 	ApiKind,
 	CompatSettings,
@@ -102,7 +102,7 @@ export function createProviderDraftFromStored(providerId: string, stored: Stored
 		providerName: stored.name ?? (providerId.replace(/^custom-/, "") || preset.defaultProviderName),
 		api,
 		openAIChatCompatibilityMode: getOpenAIChatCompatibilityMode(stored.compat),
-		baseUrl: stored.baseUrl ?? preset.baseUrl,
+		baseUrl: stored.managed ? stored.baseUrl : fromNativeBaseUrl(api, stored.baseUrl),
 		apiKey: stored.apiKey ?? "",
 		authHeader: stored.authHeader ?? preset.authHeader,
 		clientHeaderProfile: stored.clientHeaderProfile ?? "recommended",
@@ -161,7 +161,9 @@ export function createModelDraftFromStoredModel(
 		providerId,
 		providerName: stored.name ?? (providerId.replace(/^custom-/, "") || preset.defaultProviderName),
 		api: effectiveApi,
-		baseUrl: model.baseUrl ?? stored.baseUrl ?? preset.baseUrl,
+		baseUrl: stored.managed
+			? model.baseUrl ?? stored.baseUrl
+			: fromNativeBaseUrl(effectiveApi, model.baseUrl ?? stored.baseUrl),
 		apiKey: stored.apiKey ?? "",
 		authHeader: stored.authHeader ?? preset.authHeader,
 		clientHeaderProfile: stored.clientHeaderProfile ?? "recommended",
@@ -187,12 +189,9 @@ export function createModelDraftFromStoredModel(
 
 function validateUrl(url: string, label: string, errors: string[]): void {
 	try {
-		const parsed = new URL(url);
-		if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-			errors.push(t("{label} 必须使用 http 或 https", { label }));
-		}
-	} catch {
-		errors.push(t("{label} 不是有效 URL", { label }));
+		validateRequestBaseUrl(url);
+	} catch (error) {
+		errors.push(error instanceof TypeError ? t("{label} 不是有效 URL", { label }) : (error as Error).message);
 	}
 }
 
@@ -343,7 +342,17 @@ function buildProviderFromDraft(
 		managed: true,
 		authHeader: draft.authHeader,
 		clientHeaderProfile: draft.clientHeaderProfile,
-		models: (current?.models ?? []).map((model) => keepModelFieldsSupportedByApi(model, draft.api, apiChanged)),
+		models: (current?.models ?? []).map((model) => {
+			const nextModel = keepModelFieldsSupportedByApi(model, draft.api, apiChanged);
+			if (current && !current.managed && (model.baseUrl
+				|| (!apiChanged && draft.baseUrl === fromNativeBaseUrl(current.api, current.baseUrl)))) {
+				const api = model.api ?? current.api;
+				const baseUrl = fromNativeBaseUrl(api, model.baseUrl ?? current.baseUrl);
+				if (baseUrl !== draft.baseUrl) nextModel.baseUrl = baseUrl;
+				else delete nextModel.baseUrl;
+			}
+			return nextModel;
+		}),
 	};
 	const apiKey = draft.apiKey.trim();
 	if (apiKey) next.apiKey = apiKey;

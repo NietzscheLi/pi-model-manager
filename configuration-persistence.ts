@@ -7,6 +7,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 // 声明成最小契约，session_start 的 ExtensionContext 也能直接复用这些函数。
 type RegistryRefreshContext = Pick<ExtensionContext, "modelRegistry">;
 import { unlink } from "node:fs/promises";
+import { join } from "node:path";
 import { atomicWriteText } from "./atomic-write.ts";
 import { formatUnknownError, isObjectRecord, stringifyJson } from "./common.ts";
 import { withConfigurationLock } from "./configuration-lock.ts";
@@ -24,11 +25,13 @@ import {
 	buildModelsDocumentWithSynchronizedModel,
 	buildModelsDocumentWithoutModel,
 	buildSynchronizedModelsDocument,
+	migrateManagedBaseUrls,
 } from "./models-json-sync.ts";
 import { invalidateStateCache } from "./state-cache.ts";
 import {
 	CONFIGURATION_TRANSACTION_PATH,
 	STATE_PATH,
+	STATE_DIR,
 	readMetadataStateSnapshot,
 	serializeMetadataState,
 } from "./state-metadata-store.ts";
@@ -178,6 +181,17 @@ async function writeConfigurationTransaction(
 		assertSnapshotStillCurrent(MODELS_JSON_PATH, modelsSnapshot.contentHash),
 		assertSnapshotStillCurrent(STATE_PATH, metadataSnapshot.contentHash),
 	]);
+	if (metadataSnapshot.metadata.version < 5) {
+		const backupPath = join(STATE_DIR, `base-url-v5-${hashTextContent(journal.modelsJson.oldHash + journal.metadataState.oldHash).slice(0, 16)}.json`);
+		const backup = await readStableTextFileSnapshot(backupPath);
+		if (backup.source === undefined) await atomicWriteText(backupPath, stringifyJson(journal), 0o600);
+		else {
+			const saved = parseTransactionJournal(backup.source);
+			if (saved.modelsJson.oldHash !== journal.modelsJson.oldHash || saved.metadataState.oldHash !== journal.metadataState.oldHash) {
+				throw new Error(t("迁移备份内容不匹配：{path}", { path: backupPath }));
+			}
+		}
+	}
 	await atomicWriteText(TRANSACTION_PATH, stringifyJson(journal));
 
 	try {
@@ -215,13 +229,30 @@ async function persistConfigurationInsideLock(
 		[],
 		Object.keys(metadataSnapshot.legacyProviders),
 	);
+	const migratedSource = metadataSnapshot.metadata.version < 5
+		? migrateManagedBaseUrls(latest, sourceWithLegacyProviders)
+		: sourceWithLegacyProviders;
 	const change = prepare(latest);
-	const nextModels = mutateModels(sourceWithLegacyProviders, change);
+	const nextModels = mutateModels(migratedSource, change);
 	const modelsTarget = nextModels === modelsSnapshot.document && modelsSnapshot.source !== undefined
 		? modelsSnapshot.source
 		: stringifyJson(nextModels);
 	await writeConfigurationTransaction(modelsSnapshot, metadataSnapshot, modelsTarget, change.document);
 	return change.document;
+}
+
+/** 在 catalog 注册前完成地址语义升级，避免 models.json 原生覆盖与私有元数据版本不一致。 */
+export async function migrateManagedEndpointConfiguration(): Promise<boolean> {
+	return withConfigurationLock(async () => {
+		await recoverPendingConfigurationTransactionInsideLock();
+		if ((await readMetadataStateSnapshot()).metadata.version >= 5) return false;
+		await persistConfigurationInsideLock(
+			(document) => ({ document, changedProviderIds: [], removedProviderIds: [] }),
+			(source) => source,
+		);
+		invalidateStateCache();
+		return true;
+	});
 }
 
 async function refreshRegistryAfterPersistence(

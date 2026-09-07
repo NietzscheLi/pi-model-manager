@@ -5,6 +5,9 @@ export function resolve(specifier, context, nextResolve) {
 	if (specifier === "@earendil-works/pi-coding-agent") {
 		return { url: codingAgentStubUrl, shortCircuit: true };
 	}
+	if (specifier === "@earendil-works/pi-ai") {
+		return { url: new URL("./pi-ai-stub.ts", import.meta.url).href, shortCircuit: true };
+	}
 	if (specifier === "@earendil-works/pi-tui") {
 		return { url: tuiStubUrl, shortCircuit: true };
 	}

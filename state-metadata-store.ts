@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { cloneJson, isObjectRecord, stringifyJson, stripJsonNoise } from "./common.ts";
 import { readStableTextFileSnapshot, type FileSignature } from "./file-snapshot.ts";
 import { t } from "./i18n.ts";
+import { fromNativeBaseUrl, toNativeBaseUrl } from "./runtime-base-url.ts";
 import type {
 	ApiKind,
 	BuiltInClientHeaderProfileId,
@@ -43,14 +44,16 @@ interface ProviderMetadata {
 	customClientHeaders?: Record<string, string>;
 	httpProxyEnabled?: boolean;
 	httpProxyUrl?: string;
+	anthropicApiRoot?: boolean;
 }
 
 interface ModelMetadata {
 	openAIServiceTier?: OpenAIServiceTier;
+	anthropicApiRoot?: boolean;
 }
 
 export interface MetadataDocument {
-	version: 4;
+	version: 4 | 5;
 	/** 明确由插件创建或接管的 Provider ID。 */
 	managedProviderIds: string[];
 	providers: Record<string, ProviderMetadata>;
@@ -72,7 +75,7 @@ export interface MetadataStateSnapshot extends ParsedMetadataStateFile {
 }
 
 export function createEmptyMetadata(): MetadataDocument {
-	return { version: 4, managedProviderIds: [], providers: {}, models: {}, requestHeaderProfiles: {}, clientHeaderCaptures: {} };
+	return { version: 5, managedProviderIds: [], providers: {}, models: {}, requestHeaderProfiles: {}, clientHeaderCaptures: {} };
 }
 function fail(path: string, message: string): never {
 	throw new Error(t("state.json {path}: {message}", { path, message }));
@@ -224,6 +227,8 @@ function readStoredModel(raw: unknown, path: string): StoredModel {
 function readProviderMetadata(raw: unknown, path: string): ProviderMetadata {
 	if (!isObjectRecord(raw)) fail(path, t("必须是对象"));
 	const metadata: ProviderMetadata = {};
+	const anthropicApiRoot = readOptionalBoolean(raw, "anthropicApiRoot", path);
+	if (anthropicApiRoot) metadata.anthropicApiRoot = true;
 	const clientHeaderProfile = readOptionalClientHeaderProfile(raw, "clientHeaderProfile", path);
 	if (clientHeaderProfile) metadata.clientHeaderProfile = clientHeaderProfile;
 	const requestHeaderProfileId = readOptionalString(raw, "requestHeaderProfileId", path);
@@ -240,6 +245,8 @@ function readProviderMetadata(raw: unknown, path: string): ProviderMetadata {
 function readModelMetadata(raw: unknown, path: string): ModelMetadata {
 	if (!isObjectRecord(raw)) fail(path, t("必须是对象"));
 	const metadata: ModelMetadata = {};
+	const anthropicApiRoot = readOptionalBoolean(raw, "anthropicApiRoot", path);
+	if (anthropicApiRoot) metadata.anthropicApiRoot = true;
 	const openAIServiceTier = readOptionalOpenAIServiceTier(raw, "openAIServiceTier", path);
 	if (openAIServiceTier) metadata.openAIServiceTier = openAIServiceTier;
 	return metadata;
@@ -361,6 +368,7 @@ function getFullModelId(providerId: string, modelId: string): string {
 
 function extractProviderMetadata(provider: StoredProvider): ProviderMetadata {
 	const metadata: ProviderMetadata = {};
+	if (toNativeBaseUrl(provider.api, provider.baseUrl).anthropicApiRoot) metadata.anthropicApiRoot = true;
 	if (provider.clientHeaderProfile !== "recommended") metadata.clientHeaderProfile = provider.clientHeaderProfile;
 	if (provider.clientHeaderProfile === "custom" && provider.requestHeaderProfileId) {
 		metadata.clientHeaderProfile = "custom";
@@ -376,21 +384,23 @@ function extractProviderMetadata(provider: StoredProvider): ProviderMetadata {
 	return metadata;
 }
 
-function extractModelMetadata(model: StoredModel): ModelMetadata {
+function extractModelMetadata(model: StoredModel, provider: StoredProvider): ModelMetadata {
 	const metadata: ModelMetadata = {};
+	if (toNativeBaseUrl(model.api ?? provider.api, model.baseUrl ?? provider.baseUrl).anthropicApiRoot) metadata.anthropicApiRoot = true;
 	if (model.openAIServiceTier) metadata.openAIServiceTier = model.openAIServiceTier;
 	return metadata;
 }
 
 function extractMetadataFromLegacyState(legacy: StateDocument): MetadataDocument {
 	const metadata = createEmptyMetadata();
+	metadata.version = 4;
 	metadata.managedProviderIds = Object.keys(legacy.providers);
 	metadata.requestHeaderProfiles = cloneJson(legacy.requestHeaderProfiles);
 	metadata.clientHeaderCaptures = cloneJson(legacy.clientHeaderCaptures);
 	for (const [providerId, provider] of Object.entries(legacy.providers)) {
 		metadata.providers[providerId] = extractProviderMetadata(provider);
 		for (const model of provider.models) {
-			const modelMetadata = extractModelMetadata(model);
+			const modelMetadata = extractModelMetadata(model, provider);
 			if (Object.keys(modelMetadata).length > 0) metadata.models[getFullModelId(providerId, model.id)] = modelMetadata;
 		}
 	}
@@ -408,6 +418,9 @@ function parseLegacyState(parsed: Record<string, unknown>): ParsedMetadataStateF
 	}
 	const common = readCommonMetadataFields(parsed, createEmptyMetadata());
 	const legacy = { version: 2, providers, managedProviderIds: Object.keys(providers), requestHeaderProfiles: common.requestHeaderProfiles, clientHeaderCaptures: common.clientHeaderCaptures } satisfies StateDocument;
+	for (const provider of Object.values(providers)) {
+		provider.baseUrl = fromNativeBaseUrl(provider.api, provider.baseUrl, false, true);
+	}
 	return {
 		metadata: extractMetadataFromLegacyState(legacy),
 		legacyProviders: providers,
@@ -417,6 +430,7 @@ function parseLegacyState(parsed: Record<string, unknown>): ParsedMetadataStateF
 
 function parseMetadataState(parsed: Record<string, unknown>): ParsedMetadataStateFile {
 	const metadata = readCommonMetadataFields(parsed, createEmptyMetadata());
+	metadata.version = parsed.version === 5 ? 5 : 4;
 	const rawProviders = parsed.providers;
 	if (rawProviders !== undefined) {
 		if (!isObjectRecord(rawProviders)) fail(".providers", t("必须是对象"));
@@ -443,14 +457,14 @@ function parseMetadataState(parsed: Record<string, unknown>): ParsedMetadataStat
 	return {
 		metadata,
 		legacyProviders: {},
-		requirePluginManagedProviderMarker: parsed.version === 4,
+		requirePluginManagedProviderMarker: parsed.version === 4 || parsed.version === 5,
 	};
 }
 
 function parseStateFile(source: string): ParsedMetadataStateFile {
 	const parsed = JSON.parse(stripJsonNoise(source));
 	if (!isObjectRecord(parsed)) fail("", t("根节点必须是对象"));
-	if (parsed.version === 4 || parsed.version === 3 || parsed.version === 2) return parseMetadataState(parsed);
+	if (parsed.version === 5 || parsed.version === 4 || parsed.version === 3 || parsed.version === 2) return parseMetadataState(parsed);
 	if (parsed.version === undefined || parsed.version === 1) return parseLegacyState(parsed);
 	fail(".version", t("不支持的版本：{version}", { version: String(parsed.version) }));
 }
@@ -475,7 +489,7 @@ function extractMetadata(state: StateDocument): MetadataDocument {
 		const providerMetadata = extractProviderMetadata(provider);
 		if (Object.keys(providerMetadata).length > 0) metadata.providers[providerId] = providerMetadata;
 		for (const model of provider.models) {
-			const modelMetadata = extractModelMetadata(model);
+			const modelMetadata = extractModelMetadata(model, provider);
 			if (Object.keys(modelMetadata).length > 0) metadata.models[getFullModelId(providerId, model.id)] = modelMetadata;
 		}
 	}

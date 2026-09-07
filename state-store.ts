@@ -22,6 +22,7 @@ import {
 	stripManagedClientHeaders,
 } from "./presets/client-headers.ts";
 import { normalizeThinkingLevelMap } from "./presets/thinking.ts";
+import { fromNativeBaseUrl, resolveRuntimeBaseUrl, toNativeBaseUrl } from "./runtime-base-url.ts";
 import {
 	CONFIGURATION_TRANSACTION_PATH,
 	getStatePath as getMetadataStatePath,
@@ -106,6 +107,7 @@ function buildStoredModelFromModelsJson(
 	providerId: string,
 	providerApi: ApiKind,
 	providerBaseUrl: string,
+	providerNativeBaseUrl: string,
 	providerCompat: CompatSettings | undefined,
 	managed: boolean,
 	clientHeaderProfile: StoredProvider["clientHeaderProfile"],
@@ -139,14 +141,25 @@ function buildStoredModelFromModelsJson(
 		cost: readModelCost(model),
 	};
 	if (explicitApi && explicitApi !== providerApi) stored.api = explicitApi;
-	if (model.baseUrl && model.baseUrl !== providerBaseUrl) stored.baseUrl = model.baseUrl;
+	const modelMetadata = metadata.models[getFullModelId(providerId, model.id)];
+	let modelBaseUrl = model.baseUrl ?? providerBaseUrl;
+	if (managed && model.baseUrl) {
+		modelBaseUrl = fromNativeBaseUrl(effectiveApi, model.baseUrl, modelMetadata?.anthropicApiRoot, metadata.version < 5);
+	} else if (managed && effectiveApi !== providerApi) {
+		const inheritedBaseUrl = metadata.version < 5
+			? (providerApi === "anthropic-messages"
+				? toNativeBaseUrl(providerApi, providerBaseUrl).baseUrl
+				: resolveRuntimeBaseUrl(providerApi, providerNativeBaseUrl))
+			: providerNativeBaseUrl;
+		modelBaseUrl = fromNativeBaseUrl(effectiveApi, inheritedBaseUrl, modelMetadata?.anthropicApiRoot);
+	}
+	if (modelBaseUrl !== providerBaseUrl) stored.baseUrl = modelBaseUrl;
 	if (nativeHeaders) stored.headers = nativeHeaders;
 	if (model.name) stored.name = model.name;
 	const storedThinkingLevelMap = model.thinkingLevelMap ? cloneJson(model.thinkingLevelMap) as ThinkingLevelMap : undefined;
 	const thinkingLevelMap = normalizeThinkingLevelMap(effectiveApi, stored.reasoning, storedThinkingLevelMap);
 	if (thinkingLevelMap) stored.thinkingLevelMap = thinkingLevelMap;
 	if (modelCompat) stored.compat = modelCompat;
-	const modelMetadata = metadata.models[getFullModelId(providerId, model.id)];
 	if (effectiveApi === "openai-responses" && modelMetadata?.openAIServiceTier) {
 		stored.openAIServiceTier = modelMetadata.openAIServiceTier;
 	}
@@ -165,12 +178,15 @@ async function buildStoredProviderFromModelsJson(
 	const firstModel = rawModels[0];
 	const builtInDefaults = await getBuiltinProviderDefaults(providerId);
 	const api = asApiKind(entry.api) ?? asApiKind(firstModel?.api) ?? asApiKind(builtInDefaults?.api);
-	const baseUrl = entry.baseUrl ?? firstModel?.baseUrl ?? builtInDefaults?.baseUrl;
-	if (!api || !baseUrl) return undefined;
+	const nativeBaseUrl = entry.baseUrl ?? firstModel?.baseUrl ?? builtInDefaults?.baseUrl;
+	if (!api || !nativeBaseUrl) return undefined;
 
 	const providerMetadata = metadata.providers[providerId];
 	const managed = metadata.managedProviderIds.includes(providerId)
 		&& (!requirePluginManagedProviderMarker || hasPluginManagedProviderMarker(entry));
+	const baseUrl = managed
+		? fromNativeBaseUrl(api, nativeBaseUrl, providerMetadata?.anthropicApiRoot, metadata.version < 5)
+		: nativeBaseUrl;
 	const clientHeaderProfile = managed ? providerMetadata?.clientHeaderProfile ?? "recommended" : "disabled";
 	const customClientHeaders = managed && clientHeaderProfile === "custom"
 		? resolveProviderCustomHeaders(providerMetadata, metadata)
@@ -181,6 +197,7 @@ async function buildStoredProviderFromModelsJson(
 			providerId,
 			api,
 			baseUrl,
+			nativeBaseUrl,
 			providerCompat,
 			managed,
 			clientHeaderProfile,

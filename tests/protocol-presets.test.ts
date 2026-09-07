@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { findPresetForApi, switchProviderDraftApiPreset } from "../presets/providers.ts";
-import { appendUrlPath, resolveRuntimeBaseUrl } from "../runtime-base-url.ts";
+import { appendUrlPath, resolveRuntimeBaseUrl, toNativeBaseUrl, validateRequestBaseUrl } from "../runtime-base-url.ts";
 import type { ProviderDraft } from "../types.ts";
 
 function createDraft(): ProviderDraft {
@@ -25,7 +25,7 @@ test("协议切换仅替换旧协议默认预设", () => {
 	const draft = createDraft();
 	switchProviderDraftApiPreset(draft, "anthropic-messages");
 	assert.equal(draft.api, "anthropic-messages");
-	assert.equal(draft.baseUrl, "https://api.anthropic.com");
+	assert.equal(draft.baseUrl, "https://api.anthropic.com/v1");
 	assert.equal(draft.apiKey, "$ANTHROPIC_API_KEY");
 });
 
@@ -44,31 +44,35 @@ test("旧预设 URL 的尾斜杠不阻止安全替换", () => {
 	const draft = createDraft();
 	draft.baseUrl = "https://api.openai.com/v1/";
 	switchProviderDraftApiPreset(draft, "anthropic-messages");
-	assert.equal(draft.baseUrl, "https://api.anthropic.com");
+	assert.equal(draft.baseUrl, "https://api.anthropic.com/v1");
 });
 
-test("运行时 URL 路径变换保留 query 并在 query 前追加路径", () => {
+test("地址工具保留 query，发送边界显式拒绝 Base URL 查询参数", () => {
 	const runtimeUrl = resolveRuntimeBaseUrl("openai-responses", "https://gateway.example.com?tenant=a");
 	const modelListUrl = new URL(appendUrlPath(runtimeUrl, "models"));
 	assert.equal(modelListUrl.pathname, "/v1/models");
 	assert.equal(modelListUrl.search, "?tenant=a");
 
 	const anthropicUrl = new URL(resolveRuntimeBaseUrl("anthropic-messages", "https://gateway.example.com/v1?tenant=a"));
-	assert.equal(anthropicUrl.pathname, "/");
+	assert.equal(anthropicUrl.pathname, "/v1");
 	assert.equal(anthropicUrl.search, "?tenant=a");
 
 	const googleUrl = new URL(resolveRuntimeBaseUrl("google-generative-ai", "https://generativelanguage.googleapis.com?tenant=a"));
 	assert.equal(googleUrl.pathname, "/v1beta");
 	assert.equal(googleUrl.search, "?tenant=a");
+	for (const url of [runtimeUrl, anthropicUrl.href, googleUrl.href, "https://gateway.example.com/v1#fragment", "https://gateway.example.com/v1?"]) {
+		assert.throws(() => validateRequestBaseUrl(url), /Base URL/);
+	}
 });
 
-test("归一化结果可直接交给 SDK，且对根路径不留多余尾斜杠", () => {
+test("API 根地址补默认版本且与 Anthropic 原生存储形式可区分", () => {
 	// openai SDK 默认 baseURL 含 /v1，内部只拼 /responses，所以根地址必须补 /v1
 	assert.equal(resolveRuntimeBaseUrl("openai-responses", "https://api.deepseek.com"), "https://api.deepseek.com/v1");
 	assert.equal(resolveRuntimeBaseUrl("openai-responses", "https://api.deepseek.com/"), "https://api.deepseek.com/v1");
-	// anthropic SDK 内部拼 /v1/messages，所以 baseUrl 不能带 /v1
-	assert.equal(resolveRuntimeBaseUrl("anthropic-messages", "https://api.anthropic.com/v1"), "https://api.anthropic.com");
-	assert.equal(resolveRuntimeBaseUrl("anthropic-messages", "https://api.anthropic.com"), "https://api.anthropic.com");
+	// 用户侧保留 API 根地址，原生存储边界转换成 Anthropic SDK 所需形式。
+	assert.equal(resolveRuntimeBaseUrl("anthropic-messages", "https://api.anthropic.com/v1"), "https://api.anthropic.com/v1");
+	assert.equal(resolveRuntimeBaseUrl("anthropic-messages", "https://api.anthropic.com"), "https://api.anthropic.com/v1");
+	assert.deepEqual(toNativeBaseUrl("anthropic-messages", "https://api.anthropic.com/v1"), { baseUrl: "https://api.anthropic.com" });
 	// 自定义路径是用户显式指定的端点，任何协议下都不改写
 	assert.equal(resolveRuntimeBaseUrl("openai-responses", "https://gw.example.com/custom"), "https://gw.example.com/custom");
 	assert.equal(resolveRuntimeBaseUrl("anthropic-messages", "https://gw.example.com/custom"), "https://gw.example.com/custom");
@@ -88,10 +92,10 @@ test("切换协议时自定义地址按新协议规则重新归一化", () => {
 	const toAnthropic = createDraft();
 	toAnthropic.baseUrl = "https://gw.example.com/v1";
 	switchProviderDraftApiPreset(toAnthropic, "anthropic-messages");
-	assert.equal(toAnthropic.baseUrl, "https://gw.example.com", "切到 Anthropic 要剥掉 /v1");
+	assert.equal(toAnthropic.baseUrl, "https://gw.example.com/v1", "Anthropic 与 OpenAI 共享 API 根地址语义");
 
 	switchProviderDraftApiPreset(toAnthropic, "openai-responses");
-	assert.equal(toAnthropic.baseUrl, "https://gw.example.com/v1", "切回 OpenAI 要补回 /v1");
+	assert.equal(toAnthropic.baseUrl, "https://gw.example.com/v1", "切换协议保留自定义版本路径");
 
 	// 自定义路径在两个方向上都必须原样保留
 	const custom = createDraft();

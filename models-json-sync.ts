@@ -30,6 +30,7 @@ import {
 	type ModelsJsonProviderEntry,
 } from "./models-json-manager.ts";
 import { buildModelRequestHeaders } from "./provider-registrar.ts";
+import { toNativeBaseUrl } from "./runtime-base-url.ts";
 import type {
 	BuiltInClientHeaderProfileId,
 	StateDocument,
@@ -85,8 +86,11 @@ function buildModelsJsonModelEntry(
 	else delete next.name;
 	if (model.api) next.api = model.api;
 	else delete next.api;
-	if (model.baseUrl) next.baseUrl = model.baseUrl;
-	else delete next.baseUrl;
+	if (model.baseUrl || (provider.managed && model.api && model.api !== provider.api)) {
+		next.baseUrl = provider.managed
+			? toNativeBaseUrl(model.api ?? provider.api, model.baseUrl ?? provider.baseUrl).baseUrl
+			: model.baseUrl;
+	} else delete next.baseUrl;
 	next.reasoning = model.reasoning;
 	if (model.thinkingLevelMap) next.thinkingLevelMap = { ...model.thinkingLevelMap };
 	else delete next.thinkingLevelMap;
@@ -111,7 +115,7 @@ function buildModelsJsonProviderEntry(
 	const next: ModelsJsonProviderEntry = existing ? { ...existing } : {};
 	if (provider.name) next.name = provider.name;
 	else delete next.name;
-	next.baseUrl = provider.baseUrl;
+	next.baseUrl = provider.managed ? toNativeBaseUrl(provider.api, provider.baseUrl).baseUrl : provider.baseUrl;
 	next.api = provider.api;
 	if (provider.apiKey) next.apiKey = provider.apiKey;
 	else delete next.apiKey;
@@ -160,6 +164,29 @@ export function buildSynchronizedModelsDocument(
 		nextDocument = setProviderInDoc(nextDocument, providerId, entry);
 	}
 	return nextDocument;
+}
+
+/** 版本升级只转换地址字段，保留源文件中的模型、兼容参数及其他扩展字段。 */
+export function migrateManagedBaseUrls(document: StateDocument, source: ModelsJsonDocument): ModelsJsonDocument {
+	let result = source;
+	for (const [providerId, provider] of Object.entries(document.providers)) {
+		const entry = source.providers[providerId];
+		if (!provider.managed || !entry) continue;
+		if (provider.api !== "anthropic-messages" && !provider.models.some((model) => model.api === "anthropic-messages")) continue;
+		const models = new Map(provider.models.map((model) => [model.id, model]));
+		const next = {
+			...entry,
+			baseUrl: toNativeBaseUrl(provider.api, provider.baseUrl).baseUrl,
+			models: entry.models?.map((raw) => {
+				const model = models.get(raw.id);
+				if (!model) return raw;
+				if (!raw.baseUrl && !model.baseUrl && (!model.api || model.api === provider.api)) return raw;
+				return { ...raw, baseUrl: toNativeBaseUrl(model.api ?? provider.api, model.baseUrl ?? provider.baseUrl).baseUrl };
+			}),
+		};
+		result = setProviderInDoc(result, providerId, next);
+	}
+	return result;
 }
 
 export function buildModelsDocumentWithSynchronizedModel(

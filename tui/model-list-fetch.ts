@@ -5,8 +5,8 @@ import { ModelRuntime, type ProviderConfig } from "@earendil-works/pi-coding-age
 import { formatUnknownError } from "../common.ts";
 import { t } from "../i18n.ts";
 import { openTemporaryLocalProxyRoute, type TemporaryLocalProxyRoute } from "../local-proxy-service.ts";
-import { getClientHeadersForProfile } from "../presets/client-headers.ts";
-import { appendUrlPath, resolveRuntimeBaseUrl } from "../runtime-base-url.ts";
+import { getClientHeadersForProfile, mergeModelRequestHeaders } from "../presets/client-headers.ts";
+import { appendUrlPath, resolveRuntimeBaseUrl, validateRequestBaseUrl } from "../runtime-base-url.ts";
 import { isSensitiveHeaderName, redactSensitiveText } from "../sensitive-redaction.ts";
 import type { ApiKind, BuiltInClientHeaderProfileId, ClientHeaderProfileId, ModelListFetchOutcome, StoredClientHeaderCapture } from "../types.ts";
 import { extractValidatedModelIds, readBoundedResponseText } from "./model-list-validation.ts";
@@ -31,37 +31,6 @@ const emptyCredentialStore = {
 	},
 };
 
-function hasRootPath(baseUrl: string): boolean {
-	try {
-		const pathname = new URL(baseUrl.trim()).pathname.replace(/\/+$/, "");
-		return pathname === "";
-	} catch {
-		return false;
-	}
-}
-
-function buildOpenAIUrl(baseUrl: string, api: Extract<ApiKind, "openai-completions" | "openai-responses">): string {
-	return appendUrlPath(resolveRuntimeBaseUrl(api, baseUrl), "models");
-}
-
-function buildAnthropicUrl(baseUrl: string): string {
-	return hasRootPath(baseUrl)
-		? appendUrlPath(baseUrl, "v1", "models")
-		: appendUrlPath(baseUrl, "models");
-}
-
-function buildOriginOpenAIUrl(baseUrl: string): string {
-	const parsed = new URL(baseUrl.trim());
-	parsed.pathname = "/v1/models";
-	parsed.hash = "";
-	return parsed.toString();
-}
-
-function buildGoogleUrl(baseUrl: string, apiKey: string): string {
-	const url = new URL(appendUrlPath(baseUrl, "models"));
-	url.searchParams.set("key", apiKey);
-	return url.toString();
-}
 
 function throwIfAborted(signal: AbortSignal): void {
 	if (!signal.aborted) return;
@@ -118,6 +87,7 @@ async function resolveFetchAuth(
 		credentials: emptyCredentialStore,
 		modelsPath: null,
 		allowModelNetwork: false,
+		refreshOnCreate: false,
 	}), signal);
 	runtime.registerProvider(TEMP_PROVIDER_ID, providerConfig);
 	const model = runtime.getModel(TEMP_PROVIDER_ID, TEMP_MODEL_ID);
@@ -172,7 +142,13 @@ async function requestModelIds(
 			: undefined;
 		const response = await fetch(temporaryProxyRoute?.url ?? url, { headers, signal });
 		const text = await readBoundedResponseText(response, signal);
-		if (!response.ok) throw new Error(`HTTP ${response.status}: ${text.slice(0, 240)}`);
+		if (!response.ok) {
+			const reason = response.status === 401 || response.status === 403 ? t("认证失败，请检查 API key 和认证头")
+				: response.status === 404 ? t("模型列表接口不存在，可继续手动添加模型")
+				: response.status === 429 ? t("模型列表请求被限流，请稍后重试")
+				: response.status >= 500 ? t("模型列表上游服务异常") : t("模型列表请求失败");
+			throw new Error(`${reason} (HTTP ${response.status}): ${text.slice(0, 240)}`);
+		}
 		return extractValidatedModelIds(JSON.parse(text), api);
 	} finally {
 		temporaryProxyRoute?.close();
@@ -197,6 +173,8 @@ async function fetchModelIdsWithSignal(
 	signal: AbortSignal,
 	redactionSecrets: string[],
 ): Promise<ModelListFetchOutcome> {
+	throwIfAborted(signal);
+	validateRequestBaseUrl(params.baseUrl);
 	const profileHeaders = getClientHeadersForProfile(
 		params.clientHeaderProfile,
 		params.api,
@@ -205,47 +183,21 @@ async function fetchModelIdsWithSignal(
 	);
 	const auth = await resolveFetchAuth(params, profileHeaders, signal);
 	redactionSecrets.push(...auth.redactionSecrets);
-	const headers: Record<string, string> = { Accept: "application/json", ...auth.headers };
+	const defaults: Record<string, string> = { accept: "application/json" };
+	if (params.api === "anthropic-messages") {
+		defaults["x-api-key"] = auth.apiKey;
+		defaults["anthropic-version"] = "2023-06-01";
+	} else if (params.api === "google-generative-ai") defaults["x-goog-api-key"] = auth.apiKey;
+	else defaults.authorization = `Bearer ${auth.apiKey}`;
+	const headers = mergeModelRequestHeaders(defaults, auth.headers)!;
 	const proxyConfig = params.httpProxyEnabled
 		? { providerId: params.providerId, proxyUrl: params.httpProxyUrl }
 		: undefined;
 
-	if (params.api === "google-generative-ai") {
-		const modelIds = await requestModelIds(
-			buildGoogleUrl(resolveRuntimeBaseUrl(params.api, params.baseUrl), auth.apiKey),
-			headers,
-			params.api,
-			proxyConfig,
-			signal,
-		);
-		return { status: "loaded", modelIds };
-	}
-
-	if (params.api === "anthropic-messages") {
-		const anthropicVersion = headers["anthropic-version"] ?? "2023-06-01";
-		const apiKeyHeaders = { ...headers, "x-api-key": auth.apiKey, "anthropic-version": anthropicVersion };
-		try {
-			const modelIds = await requestModelIds(buildAnthropicUrl(params.baseUrl), apiKeyHeaders, params.api, proxyConfig, signal);
-			return { status: "loaded", modelIds };
-		} catch {
-			throwIfAborted(signal);
-		}
-		const bearerHeaders: Record<string, string> = { ...headers, Authorization: `Bearer ${auth.apiKey}`, "anthropic-version": anthropicVersion };
-		delete bearerHeaders["x-api-key"];
-		try {
-			const modelIds = await requestModelIds(buildAnthropicUrl(params.baseUrl), bearerHeaders, params.api, proxyConfig, signal);
-			return { status: "loaded", modelIds };
-		} catch {
-			throwIfAborted(signal);
-		}
-		const fallbackHeaders = { ...headers, Authorization: `Bearer ${auth.apiKey}` };
-		const modelIds = await requestModelIds(buildOriginOpenAIUrl(params.baseUrl), fallbackHeaders, params.api, proxyConfig, signal);
-		return { status: "loaded", modelIds };
-	}
-
+	// [喵喵喵]: 列表与聊天共享 API 根地址；错误不触发跨路径或跨认证形式的探测。
 	const modelIds = await requestModelIds(
-		buildOpenAIUrl(params.baseUrl, params.api),
-		{ ...headers, Authorization: `Bearer ${auth.apiKey}` },
+		appendUrlPath(resolveRuntimeBaseUrl(params.api, params.baseUrl), "models"),
+		headers,
 		params.api,
 		proxyConfig,
 		signal,
