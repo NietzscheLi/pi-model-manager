@@ -93,45 +93,6 @@ function thinkingLevelMap(
 	return map;
 }
 
-function isOpenRouterProvider(draft: ModelDraft): boolean {
-	const value =
-		`${draft.providerId} ${draft.providerName} ${draft.baseUrl}`.toLowerCase();
-	return value.includes("openrouter") || value.includes("openrouter.ai");
-}
-
-function providerCandidates(draft: ModelDraft): string[] {
-	const key = `${draft.providerId} ${draft.providerName}`.toLowerCase();
-	const baseUrl = draft.baseUrl.toLowerCase();
-	const aliases: Record<string, string> = {
-		"botcf-claude": "anthropic",
-		"gpteam-claude": "anthropic",
-		deepseek: "deepseek",
-	};
-	const candidates: string[] = [];
-	const providerAlias = aliases[key.split(" ")[0] ?? ""];
-	if (providerAlias) candidates.push(providerAlias);
-	if (isOpenRouterProvider(draft)) candidates.push("openrouter");
-	else if (key.includes("deepseek") || baseUrl.includes("deepseek.com"))
-		candidates.push("deepseek");
-	else if (
-		key.includes("claude") ||
-		key.includes("anthropic") ||
-		baseUrl.includes("botcf.com")
-	)
-		candidates.push("anthropic");
-	else if (
-		key.includes("codex") ||
-		key.includes("openai") ||
-		baseUrl.includes("openai.com")
-	)
-		candidates.push("openai");
-	const prefix = draft.modelId.includes("/")
-		? draft.modelId.slice(0, draft.modelId.indexOf("/"))
-		: "";
-	if (prefix) candidates.push(prefix === "x-ai" ? "xai" : prefix);
-	return [...new Set(candidates)];
-}
-
 async function fetchJson(
 	url: string,
 	fetchImpl: typeof globalThis.fetch,
@@ -154,18 +115,16 @@ function applyModelsDev(draft: ModelDraft, root: unknown): void {
 		...new Set([draft.modelId, shortId, shortId.replace(/(\d)\.(\d)/g, "$1-$2")]),
 	];
 	let remote: JsonObject | undefined;
-	for (const providerId of providerCandidates(draft)) {
-		const models = objectValue(objectValue(root[providerId])?.models);
+	for (const provider of Object.values(root).map(objectValue)) {
+		const models = objectValue(provider?.models);
+		if (!models) continue;
 		for (const modelId of ids) {
-			remote = objectValue(models?.[modelId]);
+			remote = objectValue(models[modelId]);
 			if (remote) break;
 		}
 		if (remote) break;
 	}
-	if (!remote)
-		throw new Error(
-			`models.dev did not find ${draft.providerId}/${draft.modelId}`,
-		);
+	if (!remote) throw new Error(`models.dev did not find ${draft.modelId}`);
 	const modalities = objectValue(remote.modalities);
 	const limit = objectValue(remote.limit);
 	const pricing = objectValue(remote.cost) ?? {};

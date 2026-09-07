@@ -30,7 +30,7 @@
 保存模型时：
 
 1. 选择 `models.dev`、OpenRouter 或手工模式。
-2. `models.dev` 使用 Provider 和 Model ID 匹配远程数据。
+2. `models.dev` 仅按 Model ID 匹配远程数据（搜索全部供应商），不依赖 Provider 名称，便于第三方 API 接入。
 3. OpenRouter 使用完整模型 ID（例如 `openai/gpt-5.4`）匹配远程数据。
 4. 成功匹配后更新模型能力、上下文、输出上限、推理映射和价格。
 5. OpenRouter 的 token 单价会转换为每百万 token 价格，以适配 Pi 的 `models.json` 格式。

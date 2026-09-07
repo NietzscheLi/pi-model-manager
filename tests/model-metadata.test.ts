@@ -69,6 +69,40 @@ test("models.dev 同步上下文、输出、输入、推理等级和每百万 to
 	assert.equal(draft.thinkingLevelMap?.max, null);
 });
 
+test("models.dev 仅按模型 id 匹配，支持第三方 API 供应商", async () => {
+	const draft = createDraft();
+	draft.modelId = "claude-sonnet-4-5";
+	draft.providerId = "my-proxy";
+	draft.providerName = "MyProxy";
+	draft.baseUrl = "https://proxy.example.com/v1";
+	await synchronizeModelMetadata(draft, async (input) => {
+		assert.equal(String(input), "https://models.dev/api.json");
+		return jsonResponse({
+			anthropic: {
+				models: {
+					"claude-sonnet-4-5": {
+						reasoning: true,
+						modalities: { input: ["text", "image"] },
+						limit: { context: 200_000, output: 64_000 },
+						cost: { input: 3, output: 15 },
+					},
+				},
+			},
+		});
+	});
+
+	assert.deepEqual(draft.inputKinds, ["text", "image"]);
+	assert.equal(draft.reasoningMode, "enabled");
+	assert.equal(draft.contextWindow, 200_000);
+	assert.equal(draft.maxTokens, 64_000);
+	assert.deepEqual(draft.cost, {
+		input: 3,
+		output: 15,
+		cacheRead: 0,
+		cacheWrite: 0,
+	});
+});
+
 test("OpenRouter 将每 token 价格换算成每百万 token，并保留缺失的输出上限", async () => {
 	const draft = createDraft();
 	draft.modelId = "openai/gpt-5.4";
