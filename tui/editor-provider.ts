@@ -9,7 +9,11 @@ import { t } from "../i18n.ts";
 import { switchProviderDraftApiPreset } from "../presets/providers.ts";
 import { redactUrlForDisplay } from "../sensitive-redaction.ts";
 import { resolveRuntimeBaseUrl } from "../runtime-base-url.ts";
-import { DEFAULT_PROVIDER_HTTP_PROXY_URL, type OpenAIChatCompatibilityMode } from "../types.ts";
+import {
+	DEFAULT_PROVIDER_HTTP_PROXY_URL,
+	type OpenAIChatCompatibilityMode,
+	type OpenAIResponsesStreamCompletionMode,
+} from "../types.ts";
 import { showOptionPicker, showPersistentFormMenu, padLabel, type HorizontalDirection, type MenuCursor } from "./persistent-menu.ts";
 import {
 	describeProfile,
@@ -29,6 +33,7 @@ interface FieldRow {
 }
 
 const OPENAI_CHAT_COMPATIBILITY_MODE_ORDER: readonly OpenAIChatCompatibilityMode[] = ["standard", "compatible"];
+const OPENAI_RESPONSES_STREAM_COMPLETION_MODE_ORDER: readonly OpenAIResponsesStreamCompletionMode[] = ["standard", "terminal-event"];
 
 function getOpenAIChatCompatibilityMode(draft: ProviderDraft): OpenAIChatCompatibilityMode {
 	return draft.openAIChatCompatibilityMode ?? "standard";
@@ -51,6 +56,29 @@ function cycleOpenAIChatCompatibilityMode(
 	const index = OPENAI_CHAT_COMPATIBILITY_MODE_ORDER.indexOf(mode);
 	const offset = direction === "right" ? 1 : -1;
 	return OPENAI_CHAT_COMPATIBILITY_MODE_ORDER[(index + offset + OPENAI_CHAT_COMPATIBILITY_MODE_ORDER.length) % OPENAI_CHAT_COMPATIBILITY_MODE_ORDER.length]!;
+}
+
+function getOpenAIResponsesStreamCompletionMode(draft: ProviderDraft): OpenAIResponsesStreamCompletionMode {
+	return draft.openAIResponsesStreamCompletionMode ?? "standard";
+}
+
+function describeOpenAIResponsesStreamCompletionMode(mode: OpenAIResponsesStreamCompletionMode): string {
+	if (mode === "terminal-event") return t("兼容 · 终态即结束");
+	return t("标准 · 等待连接关闭");
+}
+
+function getOpenAIResponsesStreamCompletionModeHint(mode: OpenAIResponsesStreamCompletionMode): string {
+	if (mode === "terminal-event") return t("兼容模式：正式终态事件已转交后主动结束，不等待上游关闭连接。");
+	return t("标准模式：等待上游正常结束流。若回复完成后长期卡住，可启用兼容模式。");
+}
+
+function cycleOpenAIResponsesStreamCompletionMode(
+	mode: OpenAIResponsesStreamCompletionMode,
+	direction: HorizontalDirection,
+): OpenAIResponsesStreamCompletionMode {
+	const index = OPENAI_RESPONSES_STREAM_COMPLETION_MODE_ORDER.indexOf(mode);
+	const offset = direction === "right" ? 1 : -1;
+	return OPENAI_RESPONSES_STREAM_COMPLETION_MODE_ORDER[(index + offset + OPENAI_RESPONSES_STREAM_COMPLETION_MODE_ORDER.length) % OPENAI_RESPONSES_STREAM_COMPLETION_MODE_ORDER.length]!;
 }
 
 function buildRows(
@@ -77,6 +105,14 @@ function buildRows(
 			adjustable: true,
 		});
 	}
+	if (draft.api === "openai-responses") {
+		rows.push({
+			id: "openAIResponsesStreamCompletionMode",
+			label: t("流结束兼容"),
+			value: describeOpenAIResponsesStreamCompletionMode(getOpenAIResponsesStreamCompletionMode(draft)),
+			adjustable: true,
+		});
+	}
 	rows.push(
 		{ id: "httpProxyEnabled", label: t("本机代理"), value: draft.httpProxyEnabled ? t("开启") : t("关闭"), adjustable: true },
 		{ id: "httpProxyUrl", label: t("代理地址"), value: draft.httpProxyEnabled ? redactUrlForDisplay(draft.httpProxyUrl || DEFAULT_PROVIDER_HTTP_PROXY_URL) : t("关闭时不使用") },
@@ -93,6 +129,10 @@ function buildRows(
 function applyHorizontalToggle(draft: ProviderDraft, fieldId: string, direction: HorizontalDirection): boolean {
 	if (fieldId === "openAIChatCompatibilityMode") {
 		draft.openAIChatCompatibilityMode = cycleOpenAIChatCompatibilityMode(getOpenAIChatCompatibilityMode(draft), direction);
+		return true;
+	}
+	if (fieldId === "openAIResponsesStreamCompletionMode") {
+		draft.openAIResponsesStreamCompletionMode = cycleOpenAIResponsesStreamCompletionMode(getOpenAIResponsesStreamCompletionMode(draft), direction);
 		return true;
 	}
 	if (fieldId !== "httpProxyEnabled") return false;
@@ -151,6 +191,19 @@ async function editField(
 			getOpenAIChatCompatibilityMode(draft),
 		);
 		if (choice) draft.openAIChatCompatibilityMode = choice.id as OpenAIChatCompatibilityMode;
+		return;
+	}
+	if (fieldId === "openAIResponsesStreamCompletionMode") {
+		const choice = await showOptionPicker(
+			ctx,
+			t("选择流结束兼容"),
+			[
+				{ id: "standard", label: t("标准 — 等待上游正常关闭连接") },
+				{ id: "terminal-event", label: t("兼容 — 收到正式终态事件后主动结束") },
+			],
+			getOpenAIResponsesStreamCompletionMode(draft),
+		);
+		if (choice) draft.openAIResponsesStreamCompletionMode = choice.id as OpenAIResponsesStreamCompletionMode;
 		return;
 	}
 	if (fieldId === "authHeader") {
@@ -250,6 +303,9 @@ export async function editProvider(
 			];
 			if (draft.api === "openai-completions") {
 				summaryLines.push(getOpenAIChatCompatibilityModeHint(getOpenAIChatCompatibilityMode(draft)));
+			}
+			if (draft.api === "openai-responses") {
+				summaryLines.push(getOpenAIResponsesStreamCompletionModeHint(getOpenAIResponsesStreamCompletionMode(draft)));
 			}
 			return summaryLines;
 		};

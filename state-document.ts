@@ -90,6 +90,7 @@ export function createProviderDraft(api: ApiKind = "openai-responses"): Provider
 		customClientHeaders: {},
 		httpProxyEnabled: false,
 		httpProxyUrl: DEFAULT_PROVIDER_HTTP_PROXY_URL,
+		openAIResponsesStreamCompletionMode: "standard",
 		selectedIndex: 0,
 	};
 }
@@ -110,6 +111,7 @@ export function createProviderDraftFromStored(providerId: string, stored: Stored
 		customClientHeaders: cloneStringRecord(stored.customClientHeaders),
 		httpProxyEnabled: stored.httpProxyEnabled ?? false,
 		httpProxyUrl: stored.httpProxyUrl?.trim() || DEFAULT_PROVIDER_HTTP_PROXY_URL,
+		openAIResponsesStreamCompletionMode: stored.openAIResponsesStreamCompletionMode ?? "standard",
 		selectedIndex: 0,
 	};
 }
@@ -128,6 +130,7 @@ function createModelDraftFromProvider(providerDraft: ProviderDraft): ModelDraft 
 		customClientHeaders: cloneStringRecord(providerDraft.customClientHeaders),
 		httpProxyEnabled: providerDraft.httpProxyEnabled,
 		httpProxyUrl: providerDraft.httpProxyUrl,
+
 		modelId: "",
 		modelName: "",
 		// 新建模型默认开启视觉输入；不支持图片的模型可在编辑器里关闭。
@@ -171,6 +174,7 @@ export function createModelDraftFromStoredModel(
 		customClientHeaders: cloneStringRecord(stored.customClientHeaders),
 		httpProxyEnabled: stored.httpProxyEnabled ?? false,
 		httpProxyUrl: stored.httpProxyUrl?.trim() || DEFAULT_PROVIDER_HTTP_PROXY_URL,
+
 		modelId: model.id,
 		modelName: model.name ?? "",
 		inputKinds: [...(model.input ?? preset.inputKinds)],
@@ -287,6 +291,10 @@ export function getProviderChangeWarnings(
 		&& getOpenAIChatCompatibilityMode(current.compat) !== (draft.openAIChatCompatibilityMode ?? "standard")) {
 		changes.push(t("协议兼容"));
 	}
+	if (draft.api === "openai-responses"
+		&& (current.openAIResponsesStreamCompletionMode ?? "standard") !== (draft.openAIResponsesStreamCompletionMode ?? "standard")) {
+		changes.push(t("流结束兼容"));
+	}
 	if ((current.clientHeaderProfile ?? "recommended") !== draft.clientHeaderProfile
 		|| (current.requestHeaderProfileId ?? "") !== (draft.requestHeaderProfileId ?? ""))
 		changes.push(t("请求头"));
@@ -362,6 +370,11 @@ function buildProviderFromDraft(
 	else delete next.httpProxyEnabled;
 	if (draft.httpProxyEnabled || httpProxyUrl !== DEFAULT_PROVIDER_HTTP_PROXY_URL) next.httpProxyUrl = httpProxyUrl;
 	else delete next.httpProxyUrl;
+	if (draft.api === "openai-responses" && draft.openAIResponsesStreamCompletionMode === "terminal-event") {
+		next.openAIResponsesStreamCompletionMode = "terminal-event";
+	} else {
+		delete next.openAIResponsesStreamCompletionMode;
+	}
 	if (draft.clientHeaderProfile === "custom" && draft.requestHeaderProfileId?.trim()) {
 		next.requestHeaderProfileId = draft.requestHeaderProfileId.trim();
 	} else {

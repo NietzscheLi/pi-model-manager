@@ -181,3 +181,43 @@ test("Chat 协议兼容仅在兼容模式覆盖 supportsDeveloperRole 并保留�
 	});
 	assert.equal(createProviderDraftFromStored("gateway", standard.providers.gateway!).openAIChatCompatibilityMode, "standard");
 });
+
+
+test("Responses 流结束兼容只写入插件 Metadata 并可恢复", async () => {
+	const state = {
+		version: 2 as const,
+		providers: {
+			gateway: {
+				name: "Gateway",
+				api: "openai-responses" as const,
+				baseUrl: "https://gateway.example.test/v1",
+				managed: true,
+				clientHeaderProfile: "recommended" as const,
+				openAIResponsesStreamCompletionMode: "terminal-event" as const,
+				models: [],
+			},
+		},
+		managedProviderIds: ["gateway"],
+		requestHeaderProfiles: {},
+		clientHeaderCaptures: {},
+	};
+	const serialized = JSON.parse(serializeMetadataState(state));
+	assert.equal(serialized.providers.gateway.openAIResponsesStreamCompletionMode, "terminal-event");
+
+	await writeFile(STATE_PATH, `${JSON.stringify(serialized, null, 2)}\n`, "utf8");
+	const metadata = await readMetadataStateSnapshot();
+	const nativeModels = {
+		providers: {
+			gateway: {
+				name: "Gateway",
+				api: "openai-responses",
+				baseUrl: "https://gateway.example.test/v1",
+				piModelManager: { managed: true },
+				models: [{ id: "model" }],
+			},
+		},
+	};
+	const restored = await buildStateDocumentFromModelsJson(nativeModels, metadata.metadata, true);
+	assert.equal(restored.providers.gateway!.openAIResponsesStreamCompletionMode, "terminal-event");
+	assert.equal((nativeModels.providers.gateway as Record<string, unknown>).openAIResponsesStreamCompletionMode, undefined);
+});

@@ -17,6 +17,7 @@ function createDraft(): ProviderDraft {
 		customClientHeaders: {},
 		httpProxyEnabled: false,
 		httpProxyUrl: "http://127.0.0.1:7890",
+
 		selectedIndex: 0,
 	};
 }
@@ -114,4 +115,15 @@ test("切入 Chat 时补标准协议兼容，并在切换协议后保留选择",
 	assert.equal(draft.openAIChatCompatibilityMode, "compatible");
 	switchProviderDraftApiPreset(draft, "openai-completions");
 	assert.equal(draft.openAIChatCompatibilityMode, "compatible");
+});
+
+
+test("Responses 流结束模式在协议切换后保留选择", () => {
+	const draft = createDraft();
+	assert.equal(draft.openAIResponsesStreamCompletionMode, undefined);
+	draft.openAIResponsesStreamCompletionMode = "terminal-event";
+	switchProviderDraftApiPreset(draft, "anthropic-messages");
+	assert.equal(draft.openAIResponsesStreamCompletionMode, "terminal-event");
+	switchProviderDraftApiPreset(draft, "openai-responses");
+	assert.equal(draft.openAIResponsesStreamCompletionMode, "terminal-event");
 });

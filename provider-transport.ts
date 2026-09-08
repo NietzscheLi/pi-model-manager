@@ -8,6 +8,88 @@ import { getProviderHttpProxyUrl, openTemporaryLocalProxyRoute } from "./local-p
 import { appendUrlPath, resolveRuntimeBaseUrl, validateRequestBaseUrl } from "./runtime-base-url.ts";
 import type { ApiKind, StoredProvider } from "./types.ts";
 
+const RESPONSES_TERMINAL_EVENTS = new Set([
+	"response.completed",
+	"response.incomplete",
+	"response.failed",
+	"error",
+]);
+
+function findSseFrameBoundary(buffer: Uint8Array): number {
+	for (let index = 0; index < buffer.length; index += 1) {
+		if (buffer[index] === 10 && buffer[index + 1] === 10) return index + 2;
+		if (buffer[index] === 13 && buffer[index + 1] === 13) return index + 2;
+		if (buffer[index] === 13 && buffer[index + 1] === 10 && buffer[index + 2] === 13 && buffer[index + 3] === 10) return index + 4;
+	}
+	return -1;
+}
+
+function isResponsesTerminalFrame(frame: Uint8Array): boolean {
+	const text = new TextDecoder().decode(frame);
+	let eventType: string | undefined;
+	const dataLines: string[] = [];
+	for (const line of text.split(/\r?\n|\r/)) {
+		if (line.startsWith("event:")) eventType = line.slice("event:".length).trim();
+		if (line.startsWith("data:")) dataLines.push(line.slice("data:".length).trimStart());
+	}
+	if (eventType && RESPONSES_TERMINAL_EVENTS.has(eventType)) return true;
+	const data = dataLines.join("\n").trim();
+	if (!data || data === "[DONE]") return false;
+	try {
+		const parsed = JSON.parse(data) as { type?: unknown };
+		return typeof parsed.type === "string" && RESPONSES_TERMINAL_EVENTS.has(parsed.type);
+	} catch {
+		return false;
+	}
+}
+
+function appendBytes(left: Uint8Array, right: Uint8Array): Uint8Array {
+	const combined = new Uint8Array(left.length + right.length);
+	combined.set(left);
+	combined.set(right, left.length);
+	return combined;
+}
+
+function wrapResponsesTerminalStream(response: Response): Response {
+	if (!response.body || !response.ok) return response;
+	const reader = response.body.getReader();
+	let buffer = new Uint8Array();
+	let terminal = false;
+	const body = new ReadableStream<Uint8Array>({
+		async pull(controller) {
+			while (!terminal) {
+				const boundary = findSseFrameBoundary(buffer);
+				if (boundary >= 0) {
+					const frame = buffer.slice(0, boundary);
+					buffer = buffer.slice(boundary);
+					terminal = isResponsesTerminalFrame(frame);
+					controller.enqueue(frame);
+					if (terminal) {
+						controller.close();
+						await reader.cancel().catch(() => {});
+					}
+					return;
+				}
+				const next = await reader.read();
+				if (next.done) {
+					if (buffer.length > 0) controller.enqueue(buffer);
+					controller.close();
+					return;
+				}
+				buffer = appendBytes(buffer, next.value);
+			}
+		},
+		cancel(reason) {
+			return reader.cancel(reason);
+		},
+	});
+	return new Response(body, {
+		status: response.status,
+		statusText: response.statusText,
+		headers: response.headers,
+	});
+}
+
 export function createProviderTransport(runtime: ModelRuntime, native: Provider, provider: StoredProvider): Provider {
 	const endpoints = new Map(provider.models.map((model) => {
 		const api = model.api ?? provider.api;
@@ -48,7 +130,11 @@ export function createProviderTransport(runtime: ModelRuntime, native: Provider,
 			if (proxyUrl) throw new Error(t("该协议尚不支持接入级代理：{api}", { api: model.api }));
 			return stream(upstreamModel, context, options);
 		}
-		if (!proxyUrl && model.api !== "anthropic-messages") return stream(upstreamModel, context, options);
+		if (!proxyUrl
+			&& model.api !== "anthropic-messages"
+			&& !(model.api === "openai-responses" && provider.openAIResponsesStreamCompletionMode === "terminal-event")) {
+			return stream(upstreamModel, context, options);
+		}
 		const fetchImpl = options?.fetch ?? globalThis.fetch;
 		const transportFetch: typeof fetch = async (input, init) => {
 			let request = new Request(input, init);
@@ -62,14 +148,24 @@ export function createProviderTransport(runtime: ModelRuntime, native: Provider,
 				url.pathname = new URL(appendUrlPath(endpoint.baseUrl, "messages")).pathname;
 				request = new Request(url, request);
 			}
-			if (!proxyUrl) return fetchImpl(request);
-			const route = await openTemporaryLocalProxyRoute(native.id, request.url, proxyUrl);
-			try {
-				return await fetchImpl(new Request(route.url, request));
-			} finally {
-				// [喵喵喵]: 收到响应头时转发端已经取得路由；删除查找项不会中断已建立的 SSE 流。
-				route.close();
+			let response: Response;
+			if (!proxyUrl) {
+				response = await fetchImpl(request);
+			} else {
+				const route = await openTemporaryLocalProxyRoute(native.id, request.url, proxyUrl);
+				try {
+					response = await fetchImpl(new Request(route.url, request));
+				} finally {
+					// [喵喵喵]: 收到响应头时转发端已经取得路由；删除查找项不会中断已建立的 SSE 流。
+					route.close();
+				}
 			}
+			if (model.api === "openai-responses"
+				&& provider.openAIResponsesStreamCompletionMode === "terminal-event") {
+				// [喵喵喵]: 某些中转已发出正式终态事件却保持连接；完整转交该 frame 后即可按协议结束本地流。
+				return wrapResponsesTerminalStream(response);
+			}
+			return response;
 		};
 		return stream(upstreamModel, context, { ...options, fetch: transportFetch });
 	});

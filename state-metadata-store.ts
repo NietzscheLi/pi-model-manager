@@ -22,6 +22,7 @@ import type {
 	StoredModel,
 	StoredProvider,
 	StoredRequestHeaderProfile,
+	OpenAIResponsesStreamCompletionMode,
 	ThinkingLevelMap,
 	TokenCost,
 } from "./types.ts";
@@ -44,6 +45,7 @@ interface ProviderMetadata {
 	customClientHeaders?: Record<string, string>;
 	httpProxyEnabled?: boolean;
 	httpProxyUrl?: string;
+	openAIResponsesStreamCompletionMode?: OpenAIResponsesStreamCompletionMode;
 	anthropicApiRoot?: boolean;
 }
 
@@ -158,6 +160,19 @@ function readOptionalOpenAIServiceTier(record: Record<string, unknown>, key: str
 	return value as OpenAIServiceTier;
 }
 
+function readOptionalOpenAIResponsesStreamCompletionMode(
+	record: Record<string, unknown>,
+	key: string,
+	path: string,
+): OpenAIResponsesStreamCompletionMode | undefined {
+	const value = readOptionalString(record, key, path);
+	if (value === undefined) return undefined;
+	if (value !== "standard" && value !== "terminal-event") {
+		fail(`${path}.${key}`, t("未知 Responses 流结束模式：{value}", { value }));
+	}
+	return value;
+}
+
 function readInputKinds(record: Record<string, unknown>, key: string, path: string): ModelInputKind[] {
 	const value = record[key];
 	if (!Array.isArray(value) || value.length === 0) fail(`${path}.${key}`, t("必须是非空数组"));
@@ -239,6 +254,8 @@ function readProviderMetadata(raw: unknown, path: string): ProviderMetadata {
 	if (httpProxyEnabled !== undefined) metadata.httpProxyEnabled = httpProxyEnabled;
 	const httpProxyUrl = readOptionalString(raw, "httpProxyUrl", path);
 	if (httpProxyUrl !== undefined) metadata.httpProxyUrl = httpProxyUrl;
+	const streamCompletionMode = readOptionalOpenAIResponsesStreamCompletionMode(raw, "openAIResponsesStreamCompletionMode", path);
+	if (streamCompletionMode !== undefined) metadata.openAIResponsesStreamCompletionMode = streamCompletionMode;
 	return metadata;
 }
 
@@ -308,6 +325,8 @@ function readStoredProvider(raw: unknown, path: string, managed: boolean): Store
 	if (httpProxyEnabled !== undefined) provider.httpProxyEnabled = httpProxyEnabled;
 	const httpProxyUrl = readOptionalString(raw, "httpProxyUrl", path);
 	if (httpProxyUrl !== undefined) provider.httpProxyUrl = httpProxyUrl;
+	const streamCompletionMode = readOptionalOpenAIResponsesStreamCompletionMode(raw, "openAIResponsesStreamCompletionMode", path);
+	if (streamCompletionMode !== undefined) provider.openAIResponsesStreamCompletionMode = streamCompletionMode;
 	return provider;
 }
 
@@ -381,6 +400,9 @@ function extractProviderMetadata(provider: StoredProvider): ProviderMetadata {
 	if (provider.httpProxyEnabled) metadata.httpProxyEnabled = true;
 	const httpProxyUrl = provider.httpProxyUrl?.trim();
 	if (httpProxyUrl) metadata.httpProxyUrl = httpProxyUrl;
+	if (provider.openAIResponsesStreamCompletionMode === "terminal-event") {
+		metadata.openAIResponsesStreamCompletionMode = "terminal-event";
+	}
 	return metadata;
 }
 
