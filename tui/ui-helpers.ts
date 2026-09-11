@@ -10,7 +10,7 @@
 
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { t } from "../i18n.ts";
-import { getApiKeyEnvVarName, getAuthStatusText, getProviderDisplayName } from "../state-document.ts";
+import { getAuthStatusText, getProviderDisplayName } from "../state-document.ts";
 import { getClientHeaderProfileDisplay, getClientHeaderProfileLabel, resolveClientHeaderProfile } from "../presets/client-headers.ts";
 import { redactUrlForDisplay } from "../sensitive-redaction.ts";
 import type {
@@ -21,13 +21,9 @@ import type {
 	StoredProvider,
 	StoredRequestHeaderProfile,
 } from "../types.ts";
+import { resolveDefaultApiKeyValue } from "../types.ts";
 import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
 
-export function maskSecret(value: string | undefined): string {
-	if (!value) return t("<未填写>");
-	if (getApiKeyEnvVarName(value) || value.startsWith("!")) return value;
-	return "********";
-}
 function formatContextWindow(contextWindow: number): string {
 	if (contextWindow >= 1_000_000) return `${(contextWindow / 1_000_000).toFixed(contextWindow % 1_000_000 === 0 ? 0 : 1)}M`;
 	if (contextWindow >= 1_000) return `${Math.round(contextWindow / 1_000)}K`;
@@ -83,7 +79,7 @@ function getAuthKind(apiKey: string | undefined): string {
 }
 
 function getProviderStatus(provider: StoredProvider): string {
-	const auth = getAuthKind(provider.apiKey);
+	const auth = getAuthKind(resolveDefaultApiKeyValue(provider));
 	return auth === "miss" || auth === "auth?" ? "check" : "ready";
 }
 
@@ -183,7 +179,7 @@ export function formatProviderConsoleRow(
 		models: String(provider.models.length),
 		headers: formatProviderHeaderProfile(provider, options.requestHeaderProfiles ?? {}),
 		proxy: getProviderProxyText(provider),
-		auth: getAuthKind(provider.apiKey),
+		auth: getAuthKind(resolveDefaultApiKeyValue(provider)),
 		status: getProviderStatus(provider),
 	}, availableWidth, options.nameWidth ?? PROVIDER_NAME_COLUMN_LIMIT), options.theme);
 }
@@ -212,7 +208,7 @@ export function formatProviderDetailLines(
 		formatDetailTitle(getProviderDisplayLabel(providerId, provider), theme),
 		formatDetailField("endpoint", redactUrlForDisplay(provider.baseUrl), theme),
 		formatDetailField("proxy", provider.httpProxyEnabled ? redactUrlForDisplay(provider.httpProxyUrl ?? "http://127.0.0.1:7890") : "direct", theme),
-		formatDetailField("api", `${formatApiShort(provider.api)} · headers ${formatProviderHeaderProfile(provider, requestHeaderProfiles)} · auth ${getAuthKind(provider.apiKey)}`, theme),
+		formatDetailField("api", `${formatApiShort(provider.api)} · headers ${formatProviderHeaderProfile(provider, requestHeaderProfiles)} · auth ${getAuthKind(resolveDefaultApiKeyValue(provider))}`, theme),
 		formatDetailField("models", modelIds, theme),
 	];
 }
@@ -221,7 +217,7 @@ export function formatProviderSummaryLine(
 	provider: StoredProvider,
 	requestHeaderProfiles: Record<string, StoredRequestHeaderProfile> = {},
 ): string {
-	return `${formatApiShort(provider.api)} · ${provider.models.length} ${t("模型")} · headers ${formatProviderHeaderProfile(provider, requestHeaderProfiles)} · proxy ${getProviderProxyText(provider)} · auth ${getAuthKind(provider.apiKey)}`;
+	return `${formatApiShort(provider.api)} · ${provider.models.length} ${t("模型")} · headers ${formatProviderHeaderProfile(provider, requestHeaderProfiles)} · proxy ${getProviderProxyText(provider)} · auth ${getAuthKind(resolveDefaultApiKeyValue(provider))}`;
 }
 
 export function formatProviderEndpointLine(provider: StoredProvider): string {

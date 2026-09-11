@@ -16,7 +16,7 @@
 | 请求头身份 | 使用 Pi 原生 Provider 行为 | 增加 Recommended、Disabled、Claude Code、Codex 和可复用 Custom profile |
 | 本地代理 | 由系统网络设置决定 | 支持按 Provider 配置 HTTP(S) 代理开关与地址；请求路由和模型发现都走代理 |
 | 模型 API 协议 | 模型继承 Provider 协议 | 可在模型级覆盖 Responses / Chat / Claude / Gemini，未覆盖时继承 Provider |
-| 多 API key | 每个 Provider 一个 apiKey | 每个 Provider 可维护多个命名 key，模型可按需选择（默认 key 仍写入 `models.json`） |
+| 多 API key | 每个 Provider 一个 apiKey | 每个 Provider 可维护多个命名 key，模型可按需选择；其中一个为默认 key，写入 `models.json` 作为未选模型的回退 |
 | 配置保存 | 由配置文件自身负责 | 使用跨进程锁、内容签名和可恢复事务，避免并发保存覆盖配置 |
 | 界面语言 | 使用 Pi 默认界面语言 | 扩展界面默认简体中文，可按 `L` 切换 English |
 
@@ -28,7 +28,7 @@
 - 扩展私有状态：`~/.pi/agent/extensions/pi-model-manager/state.json`
 - 配置事务文件：`~/.pi/agent/extensions/pi-model-manager/config-transaction.json`
 
-代理开关/地址、命名 API key（`apiKeys`）和模型的 key 选择（`apiKeyId`）只保存在 `state.json` 私有元数据；`models.json` 只保留接入默认 `apiKey`，因此未加载扩展时仍能按默认 key 工作。
+代理开关/地址、命名 API key 列表（`apiKeys`）、默认 key 标记（`defaultApiKeyId`）和模型的 key 选择（`apiKeyId`）只保存在 `state.json` 私有元数据；`models.json` 只保留默认 key 的值写成的 `apiKey`，因此未加载扩展时仍能按默认 key 工作。读取到只有单一 `apiKey` 的旧 `models.json` 时，会将其折成一个 id 为 `default` 的 key。
 
 ## 模型元数据同步规则
 

@@ -22,6 +22,9 @@ export type OpenAIServiceTier = "priority";
 
 export const DEFAULT_PROVIDER_HTTP_PROXY_URL = "http://127.0.0.1:7890";
 
+/** 旧版 models.json/state.json 单一 apiKey 导入或预设初始 key 时使用的保留 ID。 */
+export const DEFAULT_API_KEY_ID = "default";
+
 // ========== 持久配置合成 schema ==========
 
 export interface TokenCostTier {
@@ -81,14 +84,25 @@ export interface StoredApiKey {
 	value: string;
 }
 
+/** 供应商默认 key：显式标记优先，否则回退列表首个；两者都无则 undefined。 */
+export function resolveDefaultApiKeyId(provider: { apiKeys?: StoredApiKey[]; defaultApiKeyId?: string }): string | undefined {
+	const keys = provider.apiKeys ?? [];
+	if (provider.defaultApiKeyId && keys.some((key) => key.id === provider.defaultApiKeyId)) return provider.defaultApiKeyId;
+	return keys[0]?.id;
+}
+
+export function resolveDefaultApiKeyValue(provider: { apiKeys?: StoredApiKey[]; defaultApiKeyId?: string }): string | undefined {
+	const keyId = resolveDefaultApiKeyId(provider);
+	if (!keyId) return undefined;
+	return provider.apiKeys?.find((key) => key.id === keyId)?.value;
+}
+
 export interface StoredProvider {
 	name: string;
 	api: ApiKind;
 	baseUrl: string;
 	/** 运行时所有权，未接管的原生 Provider 不由插件生成请求头或动态注册。 */
 	managed: boolean;
-	/** 可省略；认证也可由 auth.json、/login 或 CLI --api-key 提供。 */
-	apiKey?: string;
 	/** models.json 中不由 TUI 编辑、但必须跨保存和重命名保真的原生字段。 */
 	headers?: Record<string, string>;
 	compat?: CompatSettings;
@@ -99,6 +113,8 @@ export interface StoredProvider {
 	customClientHeaders?: Record<string, string>;
 	/** 插件私有命名 key；models.json 只保存默认 key。 */
 	apiKeys?: StoredApiKey[];
+	/** 写入 models.json apiKey 并作为模型默认回退的 key ID。 */
+	defaultApiKeyId?: string;
 	httpProxyEnabled?: boolean;
 	httpProxyUrl?: string;
 	/** Responses 终态事件已完整转交后，是否主动结束本地 SSE 流。 */
@@ -126,12 +142,13 @@ export interface ProviderDraft {
 	/** Responses 流结束模式；terminal-event 不等待上游关闭连接。 */
 	openAIResponsesStreamCompletionMode?: OpenAIResponsesStreamCompletionMode;
 	baseUrl: string;
-	apiKey: string;
 	authHeader: boolean;
 	clientHeaderProfile: ClientHeaderProfileId;
 	requestHeaderProfileId?: string;
 	customClientHeaders: Record<string, string>;
 	apiKeys: StoredApiKey[];
+	/** 默认 key ID；新建接入时由预设播下，写入 models.json 并作为模型回退。 */
+	defaultApiKeyId?: string;
 	httpProxyEnabled: boolean;
 	httpProxyUrl: string;
 	selectedIndex: number;
@@ -142,14 +159,15 @@ export interface ModelDraft {
 	providerName: string;
 	api: ApiKind;
 	baseUrl: string;
-	apiKey: string;
 	authHeader: boolean;
 	clientHeaderProfile: ClientHeaderProfileId;
 	requestHeaderProfileId?: string;
 	customClientHeaders: Record<string, string>;
 	apiKeys: StoredApiKey[];
-	/** 模型级 key 选择；未设置时继承供应商默认 key。 */
+	/** 模型级 key 选择；未设置时回退供应商默认 key。 */
 	apiKeyId?: string;
+	/** 供应商默认 key ID；用于展示回退目标。 */
+	defaultApiKeyId?: string;
 	httpProxyEnabled: boolean;
 	httpProxyUrl: string;
 	modelId: string;

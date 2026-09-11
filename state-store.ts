@@ -41,7 +41,7 @@ import type {
 	TokenCost,
 	TokenCostTier,
 } from "./types.ts";
-import { ZERO_COST } from "./types.ts";
+import { DEFAULT_API_KEY_ID, ZERO_COST, resolveDefaultApiKeyId } from "./types.ts";
 
 const API_KINDS = new Set<ApiKind>(["openai-completions", "openai-responses", "anthropic-messages", "google-generative-ai"]);
 const INPUT_KINDS = new Set<ModelInputKind>(["text", "image"]);
@@ -217,7 +217,6 @@ async function buildStoredProviderFromModelsJson(
 		clientHeaderProfile,
 		models,
 	};
-	if (entry.apiKey) provider.apiKey = entry.apiKey;
 	if (entry.authHeader !== undefined) provider.authHeader = entry.authHeader;
 	if (entry.headers !== undefined) provider.headers = cloneJson(entry.headers);
 	if (providerCompat) provider.compat = providerCompat;
@@ -235,6 +234,11 @@ async function buildStoredProviderFromModelsJson(
 	}
 	if (managed && providerMetadata?.apiKeys && providerMetadata.apiKeys.length > 0) {
 		provider.apiKeys = cloneJson(providerMetadata.apiKeys);
+		provider.defaultApiKeyId = resolveDefaultApiKeyId({ apiKeys: provider.apiKeys, defaultApiKeyId: providerMetadata.defaultApiKeyId });
+	} else if (entry.apiKey) {
+		// [喵喵喵]: 旧 models.json 或未托管接入的单一 apiKey 折成默认 key，保持界面与 getAuthKind 可读。
+		provider.apiKeys = [{ id: DEFAULT_API_KEY_ID, value: entry.apiKey }];
+		provider.defaultApiKeyId = DEFAULT_API_KEY_ID;
 	}
 	return provider;
 }

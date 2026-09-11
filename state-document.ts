@@ -31,8 +31,9 @@ import type {
 	StoredModel,
 	StoredProvider,
 	StoredRequestHeaderProfile,
+	StoredApiKey,
 } from "./types.ts";
-import { DEFAULT_PROVIDER_HTTP_PROXY_URL, ZERO_COST } from "./types.ts";
+import { DEFAULT_API_KEY_ID, DEFAULT_PROVIDER_HTTP_PROXY_URL, ZERO_COST, resolveDefaultApiKeyId, resolveDefaultApiKeyValue } from "./types.ts";
 
 // ========== 小工具 ==========
 
@@ -78,17 +79,18 @@ export function getAuthStatusText(apiKey: string | undefined): string {
 
 export function createProviderDraft(api: ApiKind = "openai-responses"): ProviderDraft {
 	const preset = findPresetForApi(api);
+	const apiKeys: StoredApiKey[] = preset.apiKey ? [{ id: DEFAULT_API_KEY_ID, value: preset.apiKey }] : [];
 	return {
 		providerId: "",
 		providerName: preset.defaultProviderName,
 		api,
 		openAIChatCompatibilityMode: "standard",
 		baseUrl: preset.baseUrl,
-		apiKey: preset.apiKey,
 		authHeader: preset.authHeader,
 		clientHeaderProfile: "recommended",
 		customClientHeaders: {},
-		apiKeys: [],
+		apiKeys,
+		defaultApiKeyId: apiKeys.length > 0 ? DEFAULT_API_KEY_ID : undefined,
 		httpProxyEnabled: false,
 		httpProxyUrl: DEFAULT_PROVIDER_HTTP_PROXY_URL,
 		openAIResponsesStreamCompletionMode: "standard",
@@ -105,12 +107,12 @@ export function createProviderDraftFromStored(providerId: string, stored: Stored
 		api,
 		openAIChatCompatibilityMode: getOpenAIChatCompatibilityMode(stored.compat),
 		baseUrl: stored.managed ? stored.baseUrl : fromNativeBaseUrl(api, stored.baseUrl),
-		apiKey: stored.apiKey ?? "",
 		authHeader: stored.authHeader ?? preset.authHeader,
 		clientHeaderProfile: stored.clientHeaderProfile ?? "recommended",
 		requestHeaderProfileId: stored.requestHeaderProfileId,
 		customClientHeaders: cloneStringRecord(stored.customClientHeaders),
 		apiKeys: cloneJson(stored.apiKeys ?? []),
+		defaultApiKeyId: resolveDefaultApiKeyId(stored),
 		httpProxyEnabled: stored.httpProxyEnabled ?? false,
 		httpProxyUrl: stored.httpProxyUrl?.trim() || DEFAULT_PROVIDER_HTTP_PROXY_URL,
 		openAIResponsesStreamCompletionMode: stored.openAIResponsesStreamCompletionMode ?? "standard",
@@ -127,13 +129,13 @@ function createModelDraftFromProvider(providerDraft: ProviderDraft): ModelDraft 
 		providerApi: providerDraft.api,
 		apiOverride: undefined,
 		baseUrl: providerDraft.baseUrl,
-		apiKey: providerDraft.apiKey,
 		authHeader: providerDraft.authHeader,
 		clientHeaderProfile: providerDraft.clientHeaderProfile,
 		requestHeaderProfileId: providerDraft.requestHeaderProfileId,
 		customClientHeaders: cloneStringRecord(providerDraft.customClientHeaders),
 		apiKeys: cloneJson(providerDraft.apiKeys ?? []),
 		apiKeyId: undefined,
+		defaultApiKeyId: providerDraft.defaultApiKeyId,
 		httpProxyEnabled: providerDraft.httpProxyEnabled,
 		httpProxyUrl: providerDraft.httpProxyUrl,
 		modelId: "",
@@ -177,13 +179,13 @@ export function createModelDraftFromStoredModel(
 		baseUrl: stored.managed
 			? model.baseUrl ?? stored.baseUrl
 			: fromNativeBaseUrl(effectiveApi, model.baseUrl ?? stored.baseUrl),
-		apiKey: stored.apiKey ?? "",
 		authHeader: stored.authHeader ?? preset.authHeader,
 		clientHeaderProfile: stored.clientHeaderProfile ?? "recommended",
 		requestHeaderProfileId: stored.requestHeaderProfileId,
 		customClientHeaders: cloneStringRecord(stored.customClientHeaders),
 		apiKeys: cloneJson(stored.apiKeys ?? []),
 		apiKeyId: model.apiKeyId,
+		defaultApiKeyId: resolveDefaultApiKeyId(stored),
 		httpProxyEnabled: stored.httpProxyEnabled ?? false,
 		httpProxyUrl: stored.httpProxyUrl?.trim() || DEFAULT_PROVIDER_HTTP_PROXY_URL,
 		modelId: model.id,
@@ -267,6 +269,9 @@ export function validateProviderDraft(
 		seenApiKeyIds.add(keyId);
 		if (!key.value.trim()) errors.push(t("key 值不能为空：{keyId}", { keyId: keyId || "?" }));
 	}
+	if (draft.defaultApiKeyId && !draft.apiKeys.some((key) => key.id === draft.defaultApiKeyId)) {
+		errors.push(t("默认 key 不存在：{keyId}", { keyId: draft.defaultApiKeyId }));
+	}
 
 	return errors;
 }
@@ -312,7 +317,7 @@ export function getProviderChangeWarnings(
 	if (affected === 0) return [];
 	const changes: string[] = [];
 	if ((current.baseUrl ?? "") !== draft.baseUrl.trim()) changes.push("Base URL");
-	if ((current.apiKey ?? "") !== draft.apiKey.trim()) changes.push("API key");
+	if (resolveDefaultApiKeyValue(current) !== resolveDefaultApiKeyValue(draft)) changes.push("API key");
 	if ((current.api ?? "") !== draft.api) changes.push(t("API 协议"));
 	if ((current.authHeader ?? false) !== draft.authHeader) changes.push(t("认证头"));
 	if (draft.api === "openai-completions"
@@ -330,7 +335,8 @@ export function getProviderChangeWarnings(
 		|| (current.httpProxyUrl?.trim() || DEFAULT_PROVIDER_HTTP_PROXY_URL) !== (draft.httpProxyUrl.trim() || DEFAULT_PROVIDER_HTTP_PROXY_URL)) {
 		changes.push(t("本机代理"));
 	}
-	if (JSON.stringify(current.apiKeys ?? []) !== JSON.stringify(draft.apiKeys)) changes.push(t("API keys"));
+	if (JSON.stringify(current.apiKeys ?? []) !== JSON.stringify(draft.apiKeys)
+		|| (current.defaultApiKeyId ?? "") !== (draft.defaultApiKeyId ?? "")) changes.push(t("API keys"));
 	if (changes.length === 0) return [];
 	return [t("将修改接入级配置：{changes}，会影响该接入下 {count} 个模型。", { changes: joinLocalizedList(changes), count: affected })];
 }
@@ -392,11 +398,11 @@ function buildProviderFromDraft(
 			return nextModel;
 		}),
 	};
-	const apiKey = draft.apiKey.trim();
-	if (apiKey) next.apiKey = apiKey;
-	else delete next.apiKey;
 	if (draft.apiKeys.length > 0) next.apiKeys = draft.apiKeys.map((key) => ({ ...key }));
 	else delete next.apiKeys;
+	const defaultApiKeyId = resolveDefaultApiKeyId(draft);
+	if (defaultApiKeyId) next.defaultApiKeyId = defaultApiKeyId;
+	else delete next.defaultApiKeyId;
 	const httpProxyUrl = draft.httpProxyUrl.trim() || DEFAULT_PROVIDER_HTTP_PROXY_URL;
 	if (draft.httpProxyEnabled) next.httpProxyEnabled = true;
 	else delete next.httpProxyEnabled;

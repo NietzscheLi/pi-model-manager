@@ -11,6 +11,7 @@ import { redactUrlForDisplay } from "../sensitive-redaction.ts";
 import { resolveRuntimeBaseUrl } from "../runtime-base-url.ts";
 import {
 	DEFAULT_PROVIDER_HTTP_PROXY_URL,
+	resolveDefaultApiKeyId,
 	type OpenAIChatCompatibilityMode,
 	type OpenAIResponsesStreamCompletionMode,
 } from "../types.ts";
@@ -20,7 +21,6 @@ import {
 	formatApiShort,
 	getApiChoices,
 	getBuiltInProfileChoices,
-	maskSecret,
 } from "./ui-helpers.ts";
 import type { ClientHeaderProfileId, ProviderDraft, StoredRequestHeaderProfile } from "../types.ts";
 
@@ -82,17 +82,22 @@ function cycleOpenAIResponsesStreamCompletionMode(
 }
 
 function describeApiKeys(draft: ProviderDraft): string {
-	return draft.apiKeys.length === 0 ? t("无") : draft.apiKeys.map((key) => key.id).join(", ");
+	if (draft.apiKeys.length === 0) return t("无");
+	return `${draft.apiKeys.length} · ${t("默认")}: ${resolveDefaultApiKeyId(draft) ?? t("无")}`;
 }
 
-// 供应商内命名 key 的管理入口；默认 key 仍由上方 API key 行维护。
+// 供应商内命名 key 的唯一管理入口；默认 key 会写入 models.json。
 async function editApiKeys(ctx: ExtensionCommandContext, draft: ProviderDraft): Promise<void> {
 	while (true) {
+		const defaultId = resolveDefaultApiKeyId(draft);
 		const choice = await showOptionPicker(
 			ctx,
-			t("管理 API keys（默认 key 由上方 API key 行配置）"),
+			t("管理 API keys（默认 key 写入 models.json，作为未选 key 模型的回退）"),
 			[
-				...draft.apiKeys.map((key) => ({ id: `edit:${key.id}`, label: key.label ? `${key.id} — ${key.label}` : key.id })),
+				...draft.apiKeys.map((key) => ({
+					id: `edit:${key.id}`,
+					label: `${key.id === defaultId ? "★ " : ""}${key.label ? `${key.id} — ${key.label}` : key.id}`,
+				})),
 				{ id: "add", label: t("新增 key") },
 				{ id: "done", label: t("返回") },
 			],
@@ -110,6 +115,7 @@ async function editApiKeys(ctx: ExtensionCommandContext, draft: ProviderDraft): 
 			if (value === undefined || !value.trim()) continue;
 			const label = (await ctx.ui.input(t("显示名称（可选）"), ""))?.trim();
 			draft.apiKeys.push({ id, value: value.trim(), ...(label ? { label } : {}) });
+			if (!resolveDefaultApiKeyId(draft)) draft.defaultApiKeyId = id;
 			continue;
 		}
 		const keyId = choice.id.slice("edit:".length);
@@ -118,6 +124,7 @@ async function editApiKeys(ctx: ExtensionCommandContext, draft: ProviderDraft): 
 		const action = await showOptionPicker(ctx, t("编辑 key {id}", { id: keyId }), [
 			{ id: "value", label: t("修改 key 值") },
 			{ id: "label", label: t("修改显示名称") },
+			...(keyId === defaultId ? [] : [{ id: "default", label: t("设为默认 key") }]),
 			{ id: "delete", label: t("删除 key") },
 			{ id: "cancel", label: t("返回") },
 		], "");
@@ -132,8 +139,11 @@ async function editApiKeys(ctx: ExtensionCommandContext, draft: ProviderDraft): 
 				if (trimmed) key.label = trimmed;
 				else delete key.label;
 			}
+		} else if (action.id === "default") {
+			draft.defaultApiKeyId = keyId;
 		} else {
 			draft.apiKeys = draft.apiKeys.filter((candidate) => candidate.id !== keyId);
+			if (draft.defaultApiKeyId === keyId) draft.defaultApiKeyId = draft.apiKeys[0]?.id;
 		}
 	}
 }
@@ -173,7 +183,6 @@ function buildRows(
 	rows.push(
 		{ id: "httpProxyEnabled", label: t("本机代理"), value: draft.httpProxyEnabled ? t("开启") : t("关闭"), adjustable: true },
 		{ id: "httpProxyUrl", label: t("代理地址"), value: draft.httpProxyEnabled ? redactUrlForDisplay(draft.httpProxyUrl || DEFAULT_PROVIDER_HTTP_PROXY_URL) : t("关闭时不使用") },
-		{ id: "apiKey", label: "API key", value: maskSecret(draft.apiKey) },
 		{ id: "apiKeys", label: t("API keys"), value: describeApiKeys(draft) },
 		{ id: "authHeader", label: t("认证头"), value: draft.authHeader ? "Bearer" : t("默认") },
 		{ id: "clientHeaderProfile", label: t("请求头"), value: profileDisplay },
@@ -317,13 +326,6 @@ async function editField(
 	}
 	if (fieldId === "apiKeys") {
 		await editApiKeys(ctx, draft);
-		return;
-	}
-	if (fieldId === "apiKey") {
-		const currentLabel = draft.apiKey ? maskSecret(draft.apiKey) : t("<空>");
-		const value = await ctx.ui.input(t("API key（可选；明文 / $ENV_VAR / !command；当前：{current}，留空清除）", { current: currentLabel }), "");
-		if (value === undefined) return;
-		draft.apiKey = value.trim();
 		return;
 	}
 	// [喵喵喵]: baseUrl 是唯一走通用文本输入的字段，显式列出才能保持 draft 的类型检查。

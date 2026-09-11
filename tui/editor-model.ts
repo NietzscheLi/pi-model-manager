@@ -9,6 +9,7 @@
 import { BorderedLoader, type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { t } from "../i18n.ts";
 import type { AnthropicThinkingProtocol, ApiKind, BuiltInClientHeaderProfileId, ModelDraft, ModelListFetchOutcome, ReasoningMode, StoredClientHeaderCapture, StoredRequestHeaderProfile } from "../types.ts";
+import { resolveDefaultApiKeyId } from "../types.ts";
 import { fetchModelIds } from "./model-list-fetch.ts";
 import { pickModelIdFromList } from "./model-picker.ts";
 import { showOptionPicker, showPersistentFormMenu, padLabel, type MenuCursor } from "./persistent-menu.ts";
@@ -49,15 +50,38 @@ function describeModelApi(draft: ModelDraft): string {
 }
 
 function describeModelApiKey(draft: ModelDraft): string {
-	if (!draft.apiKeyId) return t("继承默认");
-	const key = draft.apiKeys.find((candidate) => candidate.id === draft.apiKeyId);
-	return key?.label ? `${draft.apiKeyId} — ${key.label}` : draft.apiKeyId;
+	if (draft.apiKeys.length === 0) return t("无");
+	if (!draft.apiKeyId) {
+		const defaultId = resolveDefaultApiKeyId(draft);
+		return defaultId ? t("默认（{key}）", { key: defaultId }) : t("默认");
+	}
+	return modelApiKeyLabel(draft, draft.apiKeyId);
 }
 
-// [喵喵喵]: 命名 key 用于模型发现；未选时回退供应商默认 key。
-function resolveModelApiKey(draft: ModelDraft): string {
-	if (!draft.apiKeyId) return draft.apiKey;
-	return draft.apiKeys.find((candidate) => candidate.id === draft.apiKeyId)?.value ?? draft.apiKey;
+function modelApiKeyLabel(draft: ModelDraft, keyId: string): string {
+	const key = draft.apiKeys.find((candidate) => candidate.id === keyId);
+	return key?.label ? `${keyId} — ${key.label}` : keyId;
+}
+
+function resolveModelApiKeyId(draft: ModelDraft): string | undefined {
+	return draft.apiKeyId ?? resolveDefaultApiKeyId(draft);
+}
+
+// [喵喵喵]: 模型发现每次都要显式选 key，默认选中模型已选 key（否则供应商默认）。
+async function pickApiKeyForFetch(ctx: ExtensionCommandContext, draft: ModelDraft): Promise<string | undefined> {
+	if (draft.apiKeys.length === 0) return "";
+	const defaultId = resolveDefaultApiKeyId(draft);
+	const choice = await showOptionPicker(
+		ctx,
+		t("选择拉取模型列表使用的 API key"),
+		draft.apiKeys.map((key) => ({
+			id: key.id,
+			label: `${key.id === defaultId ? "★ " : ""}${modelApiKeyLabel(draft, key.id)}`,
+		})),
+		resolveModelApiKeyId(draft) ?? draft.apiKeys[0]!.id,
+	);
+	if (!choice) return undefined;
+	return draft.apiKeys.find((key) => key.id === choice.id)?.value ?? "";
 }
 
 // 模型级协议只改变该模型的 wire 格式；派生字段按新协议收敛，避免保存后残留不适用字段。
@@ -148,11 +172,13 @@ async function pickModelFromUpstream(
 	requestHeaderProfiles: Record<string, StoredRequestHeaderProfile>,
 	clientHeaderCaptures: Partial<Record<BuiltInClientHeaderProfileId, StoredClientHeaderCapture>>,
 ): Promise<void> {
+	const apiKey = await pickApiKeyForFetch(ctx, draft);
+	if (apiKey === undefined) return;
 	const params = {
 		providerId: draft.providerId,
 		api: draft.api,
 		baseUrl: draft.baseUrl,
-		apiKey: resolveModelApiKey(draft),
+		apiKey,
 		authHeader: draft.authHeader,
 		clientHeaderProfile: draft.clientHeaderProfile,
 		customClientHeaders: getSelectedCustomHeaders(draft, requestHeaderProfiles),
@@ -240,9 +266,10 @@ async function editField(
 		return;
 	}
 	if (fieldId === "apiKeyId") {
+		const defaultId = resolveDefaultApiKeyId(draft);
 		const choice = await showOptionPicker(ctx, t("选择 API key"), [
-			{ id: "inherit", label: t("继承默认") },
-			...draft.apiKeys.map((key) => ({ id: key.id, label: key.label ? `${key.id} — ${key.label}` : key.id })),
+			{ id: "inherit", label: t("默认 key（{key}）", { key: defaultId ?? t("无") }) },
+			...draft.apiKeys.map((key) => ({ id: key.id, label: modelApiKeyLabel(draft, key.id) })),
 		], draft.apiKeyId ?? "inherit");
 		if (!choice) return;
 		if (choice.id === "inherit") delete draft.apiKeyId;
