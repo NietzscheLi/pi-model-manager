@@ -163,7 +163,6 @@ function buildStoredModelFromModelsJson(
 	if (effectiveApi === "openai-responses" && modelMetadata?.openAIServiceTier) {
 		stored.openAIServiceTier = modelMetadata.openAIServiceTier;
 	}
-	if (managed && modelMetadata?.apiKeyId) stored.apiKeyId = modelMetadata.apiKeyId;
 	return stored;
 }
 
@@ -232,9 +231,6 @@ async function buildStoredProviderFromModelsJson(
 	if (managed && providerMetadata?.httpProxyUrl !== undefined) provider.httpProxyUrl = providerMetadata.httpProxyUrl;
 	if (managed && providerMetadata?.openAIResponsesStreamCompletionMode !== undefined) {
 		provider.openAIResponsesStreamCompletionMode = providerMetadata.openAIResponsesStreamCompletionMode;
-	}
-	if (managed && providerMetadata?.apiKeys && providerMetadata.apiKeys.length > 0) {
-		provider.apiKeys = cloneJson(providerMetadata.apiKeys);
 	}
 	return provider;
 }

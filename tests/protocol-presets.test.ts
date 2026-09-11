@@ -15,7 +15,6 @@ function createDraft(): ProviderDraft {
 		authHeader: preset.authHeader,
 		clientHeaderProfile: "recommended",
 		customClientHeaders: {},
-		apiKeys: [],
 		httpProxyEnabled: false,
 		httpProxyUrl: "http://127.0.0.1:7890",
 

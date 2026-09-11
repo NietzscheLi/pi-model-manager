@@ -81,63 +81,6 @@ function cycleOpenAIResponsesStreamCompletionMode(
 	return OPENAI_RESPONSES_STREAM_COMPLETION_MODE_ORDER[(index + offset + OPENAI_RESPONSES_STREAM_COMPLETION_MODE_ORDER.length) % OPENAI_RESPONSES_STREAM_COMPLETION_MODE_ORDER.length]!;
 }
 
-function describeApiKeys(draft: ProviderDraft): string {
-	return draft.apiKeys.length === 0 ? t("无") : draft.apiKeys.map((key) => key.id).join(", ");
-}
-
-// 供应商内命名 key 的管理入口；默认 key 仍由上方 API key 行维护。
-async function editApiKeys(ctx: ExtensionCommandContext, draft: ProviderDraft): Promise<void> {
-	while (true) {
-		const choice = await showOptionPicker(
-			ctx,
-			t("管理 API keys（默认 key 由上方 API key 行配置）"),
-			[
-				...draft.apiKeys.map((key) => ({ id: `edit:${key.id}`, label: key.label ? `${key.id} — ${key.label}` : key.id })),
-				{ id: "add", label: t("新增 key") },
-				{ id: "done", label: t("返回") },
-			],
-			"",
-		);
-		if (!choice || choice.id === "done") return;
-		if (choice.id === "add") {
-			const id = (await ctx.ui.input(t("key ID（模型引用这个 ID；字母/数字/._-）"), ""))?.trim();
-			if (!id) continue;
-			if (draft.apiKeys.some((key) => key.id === id)) {
-				ctx.ui.notify(t("key ID 重复：{keyId}", { keyId: id }), "error");
-				continue;
-			}
-			const value = await ctx.ui.input(t("key 值（明文 / $ENV_VAR / !command）"), "");
-			if (value === undefined || !value.trim()) continue;
-			const label = (await ctx.ui.input(t("显示名称（可选）"), ""))?.trim();
-			draft.apiKeys.push({ id, value: value.trim(), ...(label ? { label } : {}) });
-			continue;
-		}
-		const keyId = choice.id.slice("edit:".length);
-		const key = draft.apiKeys.find((candidate) => candidate.id === keyId);
-		if (!key) continue;
-		const action = await showOptionPicker(ctx, t("编辑 key {id}", { id: keyId }), [
-			{ id: "value", label: t("修改 key 值") },
-			{ id: "label", label: t("修改显示名称") },
-			{ id: "delete", label: t("删除 key") },
-			{ id: "cancel", label: t("返回") },
-		], "");
-		if (!action || action.id === "cancel") continue;
-		if (action.id === "value") {
-			const value = await ctx.ui.input(t("key 值（明文 / $ENV_VAR / !command；留空保持不变）"), "");
-			if (value?.trim()) key.value = value.trim();
-		} else if (action.id === "label") {
-			const label = await ctx.ui.input(t("显示名称（留空清除）"), key.label ?? "");
-			if (label !== undefined) {
-				const trimmed = label.trim();
-				if (trimmed) key.label = trimmed;
-				else delete key.label;
-			}
-		} else {
-			draft.apiKeys = draft.apiKeys.filter((candidate) => candidate.id !== keyId);
-		}
-	}
-}
-
 function buildRows(
 	draft: ProviderDraft,
 	requestHeaderProfiles: Record<string, StoredRequestHeaderProfile>,
@@ -174,7 +117,6 @@ function buildRows(
 		{ id: "httpProxyEnabled", label: t("本机代理"), value: draft.httpProxyEnabled ? t("开启") : t("关闭"), adjustable: true },
 		{ id: "httpProxyUrl", label: t("代理地址"), value: draft.httpProxyEnabled ? redactUrlForDisplay(draft.httpProxyUrl || DEFAULT_PROVIDER_HTTP_PROXY_URL) : t("关闭时不使用") },
 		{ id: "apiKey", label: "API key", value: maskSecret(draft.apiKey) },
-		{ id: "apiKeys", label: t("API keys"), value: describeApiKeys(draft) },
 		{ id: "authHeader", label: t("认证头"), value: draft.authHeader ? "Bearer" : t("默认") },
 		{ id: "clientHeaderProfile", label: t("请求头"), value: profileDisplay },
 	);
@@ -313,10 +255,6 @@ async function editField(
 		const currentLabel = redactUrlForDisplay(draft.httpProxyUrl || DEFAULT_PROVIDER_HTTP_PROXY_URL);
 		const value = await ctx.ui.input(t("代理地址（http/https；当前：{current}，留空保持原值）", { current: currentLabel }), "");
 		if (value?.trim()) draft.httpProxyUrl = value.trim();
-		return;
-	}
-	if (fieldId === "apiKeys") {
-		await editApiKeys(ctx, draft);
 		return;
 	}
 	if (fieldId === "apiKey") {

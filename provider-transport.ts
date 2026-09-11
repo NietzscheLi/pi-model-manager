@@ -96,13 +96,6 @@ export function createProviderTransport(runtime: ModelRuntime, native: Provider,
 		const baseUrl = resolveRuntimeBaseUrl(api as ApiKind, model.baseUrl ?? provider.baseUrl);
 		return [model.id, { api, baseUrl }];
 	}));
-	// [喵喵喵]: 命名 key 在请求期覆盖供应商默认 apiKey；值可为明文 / $ENV / !command，仍交给 Pi 的认证解析。
-	const apiKeyByModel = new Map<string, string>();
-	for (const model of provider.models) {
-		if (!model.apiKeyId) continue;
-		const key = provider.apiKeys?.find((candidate) => candidate.id === model.apiKeyId);
-		if (key?.value) apiKeyByModel.set(model.id, key.value);
-	}
 	const proxyUrl = provider.httpProxyEnabled ? getProviderHttpProxyUrl(provider) : undefined;
 
 	const wrap = (stream: Provider["streamSimple"]): Provider["streamSimple"] => (model, context, options) => lazyStream(model, async () => {
@@ -110,12 +103,7 @@ export function createProviderTransport(runtime: ModelRuntime, native: Provider,
 		if (!endpoint || endpoint.api !== model.api) throw new Error(t("请求模型不属于当前接入配置：{modelId}", { modelId: model.id }));
 		validateRequestBaseUrl(endpoint.baseUrl);
 		// [喵喵喵]: Pi 的模型级请求头解析属于 ModelRuntime，不包含在 getProvider() 返回值里；使用已解析的 key 只补齐本接入的显式配置。
-		const selectedApiKey = apiKeyByModel.get(model.id);
-		const resolved = await runtime.getAuth(model, {
-			...(selectedApiKey ? { apiKey: selectedApiKey } : { apiKey: options?.apiKey }),
-			env: options?.env,
-			signal: options?.signal,
-		});
+		const resolved = await runtime.getAuth(model, { apiKey: options?.apiKey, env: options?.env, signal: options?.signal });
 		if (!resolved) throw new Error(t("请求认证解析失败"));
 		options = { ...options, headers: mergeModelRequestHeaders(options?.headers, resolved.auth.headers) };
 		// [喵喵喵]: models.json 会叠加在动态 provider 之上；还原用户侧 API 根地址，不能让原生持久化形式参与路径拼接。

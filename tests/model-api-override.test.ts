@@ -4,8 +4,7 @@ import { buildSynchronizedModelsDocument } from "../models-json-sync.ts";
 import { createEmptyMetadata } from "../state-metadata-store.ts";
 import { buildModelFromDraft, createModelDraftFromStoredModel } from "../state-document.ts";
 import { buildStateDocumentFromModelsJson } from "../state-store.ts";
-import type { ApiKind, StateDocument, StoredModel, StoredProvider } from "../types.ts";
-import type { ModelsJsonDocument } from "../models-json-manager.ts";
+import type { ApiKind, ModelsJsonDocument, StateDocument, StoredModel, StoredProvider } from "../types.ts";
 
 const cost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 

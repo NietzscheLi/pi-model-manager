@@ -88,7 +88,6 @@ export function createProviderDraft(api: ApiKind = "openai-responses"): Provider
 		authHeader: preset.authHeader,
 		clientHeaderProfile: "recommended",
 		customClientHeaders: {},
-		apiKeys: [],
 		httpProxyEnabled: false,
 		httpProxyUrl: DEFAULT_PROVIDER_HTTP_PROXY_URL,
 		openAIResponsesStreamCompletionMode: "standard",
@@ -110,7 +109,6 @@ export function createProviderDraftFromStored(providerId: string, stored: Stored
 		clientHeaderProfile: stored.clientHeaderProfile ?? "recommended",
 		requestHeaderProfileId: stored.requestHeaderProfileId,
 		customClientHeaders: cloneStringRecord(stored.customClientHeaders),
-		apiKeys: cloneJson(stored.apiKeys ?? []),
 		httpProxyEnabled: stored.httpProxyEnabled ?? false,
 		httpProxyUrl: stored.httpProxyUrl?.trim() || DEFAULT_PROVIDER_HTTP_PROXY_URL,
 		openAIResponsesStreamCompletionMode: stored.openAIResponsesStreamCompletionMode ?? "standard",
@@ -132,8 +130,6 @@ function createModelDraftFromProvider(providerDraft: ProviderDraft): ModelDraft 
 		clientHeaderProfile: providerDraft.clientHeaderProfile,
 		requestHeaderProfileId: providerDraft.requestHeaderProfileId,
 		customClientHeaders: cloneStringRecord(providerDraft.customClientHeaders),
-		apiKeys: cloneJson(providerDraft.apiKeys ?? []),
-		apiKeyId: undefined,
 		httpProxyEnabled: providerDraft.httpProxyEnabled,
 		httpProxyUrl: providerDraft.httpProxyUrl,
 		modelId: "",
@@ -182,8 +178,6 @@ export function createModelDraftFromStoredModel(
 		clientHeaderProfile: stored.clientHeaderProfile ?? "recommended",
 		requestHeaderProfileId: stored.requestHeaderProfileId,
 		customClientHeaders: cloneStringRecord(stored.customClientHeaders),
-		apiKeys: cloneJson(stored.apiKeys ?? []),
-		apiKeyId: model.apiKeyId,
 		httpProxyEnabled: stored.httpProxyEnabled ?? false,
 		httpProxyUrl: stored.httpProxyUrl?.trim() || DEFAULT_PROVIDER_HTTP_PROXY_URL,
 		modelId: model.id,
@@ -258,16 +252,6 @@ export function validateProviderDraft(
 		validateHttpProxyUrl(proxyUrl, errors);
 	}
 
-	const seenApiKeyIds = new Set<string>();
-	for (const key of draft.apiKeys) {
-		const keyId = key.id.trim();
-		if (!keyId) errors.push(t("key ID 不能为空"));
-		else if (!/^[A-Za-z0-9._-]+$/.test(keyId)) errors.push(t("key ID 只能包含字母、数字、点、下划线和连字符"));
-		else if (seenApiKeyIds.has(keyId)) errors.push(t("key ID 重复：{keyId}", { keyId }));
-		seenApiKeyIds.add(keyId);
-		if (!key.value.trim()) errors.push(t("key 值不能为空：{keyId}", { keyId: keyId || "?" }));
-	}
-
 	return errors;
 }
 
@@ -295,10 +279,6 @@ export function validateModelDraft(
 	const duplicate = (provider?.models ?? []).find((m) => m.id === draft.modelId.trim());
 	if (duplicate && duplicate.id !== replacedModelId)
 		errors.push(t("模型已存在：{modelId}", { modelId: draft.modelId.trim() }));
-
-	if (draft.apiKeyId && !(provider?.apiKeys ?? draft.apiKeys).some((key) => key.id === draft.apiKeyId)) {
-		errors.push(t("API key 不存在：{keyId}", { keyId: draft.apiKeyId }));
-	}
 
 	return errors;
 }
@@ -330,7 +310,6 @@ export function getProviderChangeWarnings(
 		|| (current.httpProxyUrl?.trim() || DEFAULT_PROVIDER_HTTP_PROXY_URL) !== (draft.httpProxyUrl.trim() || DEFAULT_PROVIDER_HTTP_PROXY_URL)) {
 		changes.push(t("本机代理"));
 	}
-	if (JSON.stringify(current.apiKeys ?? []) !== JSON.stringify(draft.apiKeys)) changes.push(t("API keys"));
 	if (changes.length === 0) return [];
 	return [t("将修改接入级配置：{changes}，会影响该接入下 {count} 个模型。", { changes: joinLocalizedList(changes), count: affected })];
 }
@@ -388,15 +367,12 @@ function buildProviderFromDraft(
 				if (baseUrl !== draft.baseUrl) nextModel.baseUrl = baseUrl;
 				else delete nextModel.baseUrl;
 			}
-			if (nextModel.apiKeyId && !draft.apiKeys.some((key) => key.id === nextModel.apiKeyId)) delete nextModel.apiKeyId;
 			return nextModel;
 		}),
 	};
 	const apiKey = draft.apiKey.trim();
 	if (apiKey) next.apiKey = apiKey;
 	else delete next.apiKey;
-	if (draft.apiKeys.length > 0) next.apiKeys = draft.apiKeys.map((key) => ({ ...key }));
-	else delete next.apiKeys;
 	const httpProxyUrl = draft.httpProxyUrl.trim() || DEFAULT_PROVIDER_HTTP_PROXY_URL;
 	if (draft.httpProxyEnabled) next.httpProxyEnabled = true;
 	else delete next.httpProxyEnabled;
@@ -449,8 +425,6 @@ export function buildModelFromDraft(
 	};
 	if (draft.apiOverride) next.api = draft.apiOverride;
 	else delete next.api;
-	if (draft.apiKeyId) next.apiKeyId = draft.apiKeyId;
-	else delete next.apiKeyId;
 	if (existing?.baseUrl) next.baseUrl = existing.baseUrl;
 	if (hasStringRecordEntries(existing?.headers)) next.headers = cloneStringRecord(existing?.headers);
 

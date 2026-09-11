@@ -136,7 +136,6 @@ Ctrl+S 保存并启用模型；不切换当前会话模型
 - Enable `service_tier=priority` (Fast mode) per OpenAI Responses model.
 - Use recommended, disabled, Claude Code, Codex, or custom client-header profiles.
 - Reference API keys as literals, `$ENV_VAR` / `${ENV_VAR}`, or Pi `!command` values.
-- Configure multiple named API keys per provider (kept only in private `state.json` metadata) and let each model pick one; the default key still lives in `models.json`.
 - Persist configuration with a cross-process lock and recoverable two-file transactions, then re-register managed providers after saving.
 
 ## Installation
@@ -209,15 +208,6 @@ Base URL represents the API root. Both OpenAI protocols and Anthropic append `/v
 
 Standard Anthropic endpoints are converted to Pi's native SDK representation in `models.json`, so they also work without the extension. Custom version paths use private `state.json` metadata and require the extension's transport adapter. Toggling the proxy changes only the transport route, preserving the final endpoint, application headers, and payload. Proxy failures are reported.
 
-### Multiple API keys
-
-The **API key** row configures the provider's default key (written to `models.json`). The provider editor also has an **API keys** row for named keys:
-
-- Each named key has an ID, an optional display name, and a value; values support literals, `$ENV_VAR` / `${ENV_VAR}`, and Pi `!command` references.
-- Named keys are private plugin metadata kept only in `state.json`; they are never written to `models.json`.
-- A model's **API key** row selects either **Inherit default** or a named key; the selected key overrides the default for that model's requests.
-- Deleting a named key that models still reference clears those references when the provider is saved.
-
 Model capabilities include:
 
 - API protocol: per-model override (Responses / Chat / Claude / Gemini), inheriting the provider protocol by default
@@ -288,7 +278,6 @@ ${ANTHROPIC_API_KEY}
 Additional considerations:
 
 - Custom client headers are not a credential store.
-- Named API keys are stored only in `state.json`; protect plaintext values like credential files and prefer environment-variable or command references.
 - Model discovery sends a network request to the configured upstream endpoint.
 - The repository ignores `state.json`, runtime logs, request captures, and other machine-specific files.
 
