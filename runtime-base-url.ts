@@ -1,85 +1,65 @@
-// 将用户填写的 Base URL 转成各协议实际请求根地址，并提供保留 query/hash 的路径追加。
+// 用户侧 API 根地址与 Pi 原生 Anthropic SDK 地址之间的转换。
 
+import { t } from "./i18n.ts";
 import type { ApiKind } from "./types.ts";
 
-function trimTrailingSlashes(value: string): string {
-	return value.trim().replace(/\/+$/, "");
+function formatUrl(url: URL): string {
+	return url.toString().replace(/^(https?:\/\/[^/?#]+)\/(?=$|[?#])/i, "$1");
 }
 
-function parseBaseUrl(baseUrl: string): URL | undefined {
-	try {
-		return new URL(baseUrl.trim());
-	} catch {
-		return undefined;
-	}
-}
-
-function trimPathTrailingSlashes(pathname: string): string {
-	const trimmed = pathname.replace(/\/+$/, "");
-	return trimmed || "/";
-}
-
-function hasRootPath(url: URL): boolean {
-	return trimPathTrailingSlashes(url.pathname) === "/";
-}
-
-function appendPathSegments(url: URL, segments: string[]): string {
-	const basePath = trimPathTrailingSlashes(url.pathname);
-	const suffix = segments.map((segment) => segment.replace(/^\/+|\/+$/g, "")).filter(Boolean).join("/");
-	url.pathname = `${basePath === "/" ? "" : basePath}/${suffix}` || "/";
-	return url.toString();
+function trimPath(url: URL): void {
+	url.pathname = url.pathname.replace(/\/+$/, "") || "/";
 }
 
 export function appendUrlPath(baseUrl: string, ...segments: string[]): string {
-	const parsed = parseBaseUrl(baseUrl);
-	if (parsed) return appendPathSegments(parsed, segments);
+	const url = new URL(baseUrl.trim());
+	const prefix = url.pathname.replace(/\/+$/, "");
 	const suffix = segments.map((segment) => segment.replace(/^\/+|\/+$/g, "")).filter(Boolean).join("/");
-	return `${trimTrailingSlashes(baseUrl)}/${suffix}`;
+	url.pathname = `${prefix}/${suffix}`;
+	return formatUrl(url);
 }
 
-function stripTrailingV1(baseUrl: string): string {
-	const parsed = parseBaseUrl(baseUrl);
-	if (!parsed) {
-		const trimmed = trimTrailingSlashes(baseUrl);
-		return trimmed.toLowerCase().endsWith("/v1") ? trimmed.slice(0, -3) : trimmed;
+/** 校验发生在编辑/注册/发现边界，不允许 SDK 把端点拼进查询参数或 fragment。 */
+export function validateRequestBaseUrl(baseUrl: string): void {
+	const url = new URL(baseUrl.trim());
+	if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error(t("Base URL 必须使用 http 或 https"));
+	if (baseUrl.includes("?") || baseUrl.includes("#")) {
+		throw new Error(t("Base URL 不支持查询参数（?）或片段（#）；请填写 API 根地址"));
 	}
-	const path = trimPathTrailingSlashes(parsed.pathname);
-	if (path.toLowerCase().endsWith("/v1")) {
-		parsed.pathname = path.slice(0, -3) || "/";
-	} else {
-		parsed.pathname = path;
-	}
-	return parsed.toString();
-}
-
-function appendV1ForRootUrl(baseUrl: string): string {
-	const parsed = parseBaseUrl(baseUrl);
-	if (!parsed) return trimTrailingSlashes(baseUrl);
-	if (hasRootPath(parsed)) return appendPathSegments(parsed, ["v1"]);
-	parsed.pathname = trimPathTrailingSlashes(parsed.pathname);
-	return parsed.toString();
-}
-
-function appendGoogleGenerativeApiVersionForRootUrl(baseUrl: string): string {
-	const parsed = parseBaseUrl(baseUrl);
-	if (!parsed) return trimTrailingSlashes(baseUrl);
-	// Google Generative Language 的根域名不是可直接请求的模型 API 根路径。
-	if (parsed.hostname === "generativelanguage.googleapis.com" && hasRootPath(parsed)) {
-		return appendPathSegments(parsed, ["v1beta"]);
-	}
-	parsed.pathname = trimPathTrailingSlashes(parsed.pathname);
-	return parsed.toString();
-}
-
-// [喵喵喵]: URL.toString() 对根路径会补出尾斜杠，归一化结果现在会落盘到 models.json，
-// 多一个斜杠会让本来正确的配置被判定为需要迁移，白白改写用户配置。
-function stripRootTrailingSlash(url: string): string {
-	return url.replace(/^(https?:\/\/[^/?#]+)\/(?=$|[?#])/i, "$1");
+	if (url.username || url.password) throw new Error(t("Base URL 不支持内嵌认证；请使用 API key 或请求头配置"));
 }
 
 export function resolveRuntimeBaseUrl(api: ApiKind, baseUrl: string): string {
-	if (api === "anthropic-messages") return stripRootTrailingSlash(stripTrailingV1(baseUrl));
-	if (api === "openai-completions" || api === "openai-responses") return stripRootTrailingSlash(appendV1ForRootUrl(baseUrl));
-	if (api === "google-generative-ai") return stripRootTrailingSlash(appendGoogleGenerativeApiVersionForRootUrl(baseUrl));
-	return trimTrailingSlashes(baseUrl);
+	const url = new URL(baseUrl.trim());
+	trimPath(url);
+	if (url.pathname === "/") {
+		if (api === "openai-completions" || api === "openai-responses" || api === "anthropic-messages") url.pathname = "/v1";
+		else if (api === "google-generative-ai" && url.hostname === "generativelanguage.googleapis.com") url.pathname = "/v1beta";
+	}
+	return formatUrl(url);
+}
+
+/** 标准 Anthropic 根地址存成 SDK 原生形式，自定义版本路径由私有元数据标识。 */
+export function toNativeBaseUrl(api: string, baseUrl: string): { baseUrl: string; anthropicApiRoot?: true } {
+	if (api !== "anthropic-messages") return { baseUrl };
+	const url = new URL(resolveRuntimeBaseUrl(api, baseUrl));
+	if (url.pathname.endsWith("/v1")) {
+		url.pathname = url.pathname.slice(0, -3) || "/";
+		return { baseUrl: formatUrl(url) };
+	}
+	return { baseUrl: formatUrl(url), anthropicApiRoot: true };
+}
+
+export function fromNativeBaseUrl(
+	api: string,
+	baseUrl: string,
+	anthropicApiRoot = false,
+	legacyNormalization = false,
+): string {
+	if (api !== "anthropic-messages" || anthropicApiRoot) return baseUrl;
+	const url = new URL(baseUrl.trim());
+	trimPath(url);
+	// [喵喵喵]: 旧版插件在注册前剥去末尾 /v1；读取旧配置必须先复现该行为再显式补回版本路径。
+	if (legacyNormalization && url.pathname.toLowerCase().endsWith("/v1")) url.pathname = url.pathname.slice(0, -3) || "/";
+	return appendUrlPath(formatUrl(url), "v1");
 }

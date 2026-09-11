@@ -216,7 +216,7 @@ test("v1 legacy Provider 会在任意配置保存时迁入 models.json", async (
 	const models = JSON.parse(await readFile(MODELS_JSON_PATH, "utf8"));
 	assert.equal(models.providers.legacy.models[0].id, "legacy-model");
 	assert.equal(models.providers.legacy.piModelManager.managed, true);
-	assert.equal(JSON.parse(await readFile(STATE_PATH, "utf8")).version, 4);
+	assert.equal(JSON.parse(await readFile(STATE_PATH, "utf8")).version, 5);
 	const state = await readState();
 	assert.equal(state.providers.legacy?.managed, true);
 	assert.equal(state.providers.legacy?.models[0]?.id, "legacy-model");
@@ -235,10 +235,11 @@ test("baseUrl 迁移只挑受管理且确实需要归一化的接入", () => {
 	} as unknown as StateDocument;
 
 	const targets = findProvidersNeedingBaseUrlNormalization(document);
-	assert.deepEqual(targets, ["managedStale"], "已正确的接入和原生接入都不该进入迁移集合");
+	assert.deepEqual(targets, ["managedStale", "managedAnthropic"], "只补齐受管理接入的默认 API 版本");
 
 	const next = normalizeProviderBaseUrlsInDocument(document, targets);
 	assert.equal(next.providers.managedStale!.baseUrl, "https://api.deepseek.com/v1");
+	assert.equal(next.providers.managedAnthropic!.baseUrl, "https://api.anthropic.com/v1");
 	assert.equal(next.providers.nativeStale!.baseUrl, "https://native.example.com", "原生接入的 baseUrl 不是本插件写的，不能代改");
 	assert.equal(document.providers.managedStale!.baseUrl, "https://api.deepseek.com", "原文档必须保持不可变");
 

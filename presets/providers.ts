@@ -49,7 +49,7 @@ const PROVIDER_PRESETS: ProviderPreset[] = [
 		label: "Anthropic Messages — Claude thinking",
 		shortLabel: "Anthropic Messages",
 		defaultProviderName: "anthropic",
-		baseUrl: "https://api.anthropic.com",
+		baseUrl: "https://api.anthropic.com/v1",
 		apiKey: "$ANTHROPIC_API_KEY",
 		authHeader: false,
 		contextWindow: 200000,

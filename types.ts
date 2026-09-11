@@ -14,6 +14,7 @@ type ModelMetadataSource = "models.dev" | "openrouter" | "manual";
 export type ReasoningMode = "enabled" | "disabled";
 export type AnthropicThinkingProtocol = "adaptive" | "legacy";
 export type OpenAIChatCompatibilityMode = "standard" | "compatible";
+export type OpenAIResponsesStreamCompletionMode = "standard" | "terminal-event";
 export type BuiltInClientHeaderProfileId = "claude-code" | "codex-cli";
 export type ClientHeaderProfileId = "recommended" | "disabled" | BuiltInClientHeaderProfileId | "custom";
 export type CompatSettings = Record<string, unknown>;
@@ -85,6 +86,8 @@ export interface StoredProvider {
 	clientHeaderProfile: ClientHeaderProfileId;
 	requestHeaderProfileId?: string;
 	customClientHeaders?: Record<string, string>;
+	/** Responses 终态事件已完整转交后，是否主动结束本地 SSE 流。 */
+	openAIResponsesStreamCompletionMode?: OpenAIResponsesStreamCompletionMode;
 	models: StoredModel[];
 }
 
@@ -105,6 +108,8 @@ export interface ProviderDraft {
 	api: ApiKind;
 	/** Chat Completions 系统提示词兼容模式；standard 保持 Pi 默认判断。 */
 	openAIChatCompatibilityMode?: OpenAIChatCompatibilityMode;
+	/** Responses 流结束模式；terminal-event 不等待上游关闭连接。 */
+	openAIResponsesStreamCompletionMode?: OpenAIResponsesStreamCompletionMode;
 	baseUrl: string;
 	apiKey: string;
 	authHeader: boolean;

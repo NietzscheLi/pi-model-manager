@@ -20,6 +20,7 @@ function createChatDraft(): ProviderDraft {
 		authHeader: false,
 		clientHeaderProfile: "recommended",
 		customClientHeaders: {},
+		openAIResponsesStreamCompletionMode: "standard",
 		selectedIndex: 0,
 	};
 }
@@ -60,6 +61,52 @@ test("Chat 接入的协议兼容支持左右键两态切换并显示说明", asy
 
 	menu.handleInput(Key.left);
 	assert.equal(draft.openAIChatCompatibilityMode, "standard");
+
+	menu.handleInput(Key.ctrl("s"));
+	assert.deepEqual(await outcome, { action: "save", draft });
+});
+
+function createResponsesDraft(): ProviderDraft {
+	return {
+		...createChatDraft(),
+		api: "openai-responses",
+		openAIResponsesStreamCompletionMode: "standard",
+	};
+}
+
+test("Responses 接入的流结束兼容支持左右键切换并显示说明", async () => {
+	const draft = createResponsesDraft();
+	let component: MenuComponent | undefined;
+	const ctx = {
+		ui: {
+			custom(factory: any) {
+				return new Promise((resolve) => {
+					component = factory(
+						{ requestRender() {} },
+						{
+							fg: (_color: string, text: string) => text,
+							bg: (_color: string, text: string) => text,
+							bold: (text: string) => text,
+						},
+						{},
+						resolve,
+					);
+				});
+			},
+		},
+	} as any;
+
+	const outcome = editProvider(ctx, draft, "编辑接入");
+	assert.ok(component, "编辑器应同步创建");
+	const menu = component;
+	for (let index = 0; index < 4; index += 1) menu.handleInput(Key.down);
+	assert.match(menu.render(100).join("\n"), /流结束兼容\s+标准 · 等待连接关闭/);
+	assert.match(menu.render(100).join("\n"), /标准模式：等待上游正常结束流/);
+
+	menu.handleInput(Key.right);
+	assert.equal(draft.openAIResponsesStreamCompletionMode, "terminal-event");
+	assert.match(menu.render(100).join("\n"), /兼容 · 终态即结束/);
+	assert.match(menu.render(100).join("\n"), /正式终态事件已转交后主动结束/);
 
 	menu.handleInput(Key.ctrl("s"));
 	assert.deepEqual(await outcome, { action: "save", draft });

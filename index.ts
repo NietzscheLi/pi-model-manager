@@ -12,7 +12,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { formatUnknownError } from "./common.ts";
 import { DEFAULT_UI_LANGUAGE, joinLocalizedList, setUiLanguage, t } from "./i18n.ts";
 import { readUiLanguage } from "./ui-language-settings.ts";
-import { persistManagedConfiguration, recoverPendingConfigurationTransaction } from "./configuration-persistence.ts";
+import { persistManagedConfiguration, recoverPendingConfigurationTransaction, migrateManagedEndpointConfiguration } from "./configuration-persistence.ts";
 import { resetClaudeCodeMetadataSession } from "./claude-code-compat.ts";
 import { findProvidersNeedingBaseUrlNormalization, normalizeProviderBaseUrlsInDocument } from "./state-document.ts";
 import { registerAllFromState, registerCatalogFromState } from "./provider-registrar.ts";
@@ -34,8 +34,10 @@ export default async function modelManagerExtension(pi: ExtensionAPI): Promise<v
 	}
 
 	let configurationBlocked = false;
+	let migratedEndpointConfiguration = false;
 	try {
 		await recoverPendingConfigurationTransaction();
+		migratedEndpointConfiguration = await migrateManagedEndpointConfiguration();
 	} catch (error) {
 		configurationBlocked = true;
 		summary.startupErrors.push(t("恢复未完成配置事务失败：{error}（为避免读取半完成配置，本次暂不注册模型）", { error: formatUnknownError(error) }));
@@ -64,6 +66,7 @@ export default async function modelManagerExtension(pi: ExtensionAPI): Promise<v
 		try {
 			if (configurationBlocked) {
 				await recoverPendingConfigurationTransaction();
+				migratedEndpointConfiguration = await migrateManagedEndpointConfiguration() || migratedEndpointConfiguration;
 				configurationBlocked = false;
 			}
 			const currentState = await readState();
@@ -95,9 +98,13 @@ export default async function modelManagerExtension(pi: ExtensionAPI): Promise<v
 		for (const error of transportErrors) {
 			ctx.ui.notify(`[pi-model-manager] ${error}`, "error");
 		}
+		if (migratedEndpointConfiguration) {
+			ctx.ui.notify(t("[pi-model-manager] 已升级端点配置；迁移前快照保存在插件配置目录的 base-url-v5-*.json"), "info");
+			migratedEndpointConfiguration = false;
+		}
 		if (migratedBaseUrlProviderIds.length > 0) {
 			ctx.ui.notify(
-				t("[pi-model-manager] 已补全 {count} 个接入的请求地址（{providerIds}），现在 models.json 存的就是实际请求根地址", {
+				t("[pi-model-manager] 已规范化 {count} 个接入的 API 根地址（{providerIds}）", {
 					count: migratedBaseUrlProviderIds.length,
 					providerIds: joinLocalizedList(migratedBaseUrlProviderIds),
 				}),

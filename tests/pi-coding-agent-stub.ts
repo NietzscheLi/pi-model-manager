@@ -8,8 +8,28 @@ export function getAgentDir(): string {
 }
 
 export class ModelRuntime {
-	static async create(): Promise<{ getModels(): never[] }> {
-		return { getModels: () => [] };
+	private configs = new Map<string, any>();
+	static async create(): Promise<ModelRuntime> { return new ModelRuntime(); }
+	registerProvider(id: string, config: any): void { this.configs.set(id, config); }
+	getModels(providerId?: string): any[] {
+		return [...this.configs].filter(([id]) => !providerId || id === providerId).flatMap(([id, config]) =>
+			(config.models ?? []).map((model: any) => ({ ...model, provider: id, api: model.api ?? config.api, baseUrl: model.baseUrl ?? config.baseUrl })));
+	}
+	getModel(providerId: string, modelId: string): any { return this.getModels(providerId).find((model) => model.id === modelId); }
+	getProvider(id: string): any {
+		const config = this.configs.get(id);
+		if (!config) return undefined;
+		return {
+			id, name: config.name,
+			getModels: () => this.getModels(id),
+			auth: {},
+			stream() { throw new Error("协议请求必须使用真实 Pi 测试加载器"); },
+			streamSimple() { throw new Error("协议请求必须使用真实 Pi 测试加载器"); },
+		};
+	}
+	async getAuth(model: any): Promise<any> {
+		const config = this.configs.get(model.provider);
+		return { auth: { apiKey: config.apiKey, headers: config.headers } };
 	}
 }
 

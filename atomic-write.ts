@@ -56,13 +56,13 @@ async function renameWithRetry(sourcePath: string, targetPath: string): Promise<
 
 
 
-export async function atomicWriteText(targetPath: string, content: string): Promise<void> {
+export async function atomicWriteText(targetPath: string, content: string, mode?: number): Promise<void> {
 	await mkdir(dirname(targetPath), { recursive: true });
 	const tempPath = `${targetPath}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
 	let tempHasCompleteContent = false;
 
 	try {
-		await writeFile(tempPath, content, "utf8");
+		await writeFile(tempPath, content, { encoding: "utf8", mode });
 		tempHasCompleteContent = true;
 		await renameWithRetry(tempPath, targetPath);
 	} catch (error) {

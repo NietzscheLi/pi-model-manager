@@ -1,60 +1,49 @@
-// provider-registrar.ts
-//
-// StoredProvider → pi 的 ProviderConfig → pi.registerProvider 的统一桥梁。
-//
-// 设计要点：
-//   - factory 阶段与 session_start 都直接以 stored 配置注册 runtime provider；保存后的完整同步入口是 reconcileProvider。
-//   - reconcileProvider 是保存后的完整 runtime 同步入口，统一处理 register/unregister 与回滚。
-//   - getClientHeadersForProfile 在这里调，把客户端请求头 profile 翻译成模型级 headers。
+// 将配置交给 Pi 构造原生 Provider，插件仅包装其请求传输。
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { ModelRuntime, type ExtensionAPI, type ProviderConfig } from "@earendil-works/pi-coding-agent";
+import type { Provider } from "@earendil-works/pi-ai";
 import { isBuiltinProviderId } from "./builtin-model-catalog.ts";
 import { mergeCompatSettings } from "./compat-settings.ts";
 import { formatUnknownError } from "./common.ts";
 import { t } from "./i18n.ts";
-import {
-	getClientHeadersForProfile,
-	mergeModelRequestHeaders,
-} from "./presets/client-headers.ts";
+import { getClientHeadersForProfile, mergeModelRequestHeaders } from "./presets/client-headers.ts";
+import { createProviderTransport } from "./provider-transport.ts";
 import { resolveRuntimeBaseUrl } from "./runtime-base-url.ts";
 import type { ApiKind, BuiltInClientHeaderProfileId, StateDocument, StoredClientHeaderCapture, StoredModel, StoredProvider, StoredRequestHeaderProfile } from "./types.ts";
 
-// pi 的 ProviderConfig 类型从 d.ts 拿；这里用结构兼容 + as any 避免拉太多内部类型。
-// 关键字段：name / baseUrl / apiKey / api / authHeader / models
-type ProviderConfig = Parameters<ExtensionAPI["registerProvider"]>[1];
 type ProviderModelConfig = NonNullable<ProviderConfig["models"]>[number];
-
-const REGISTERED_PROVIDER_CONFIGS = new Map<string, ProviderConfig>();
+const REGISTERED_PROVIDER_CONFIGS = new Map<string, Provider>();
+const emptyCredentialStore = {
+	async read() { return undefined; },
+	async list() { return []; },
+	async modify() { return undefined; },
+	async delete() {},
+};
 
 function buildProviderConfig(
 	provider: StoredProvider,
 	requestHeaderProfiles: Record<string, StoredRequestHeaderProfile> = {},
 	clientHeaderCaptures: Partial<Record<BuiltInClientHeaderProfileId, StoredClientHeaderCapture>> = {},
 ): ProviderConfig {
-	const runtimeBaseUrl = resolveRuntimeBaseUrl(provider.api, provider.baseUrl);
 	const apiKey = provider.apiKey?.trim();
 	return {
 		name: provider.name,
-		baseUrl: runtimeBaseUrl,
+		baseUrl: resolveRuntimeBaseUrl(provider.api, provider.baseUrl),
 		...(apiKey ? { apiKey } : {}),
 		api: provider.api,
-		headers: provider.headers,
+		headers: mergeModelRequestHeaders(undefined, provider.headers),
 		authHeader: provider.authHeader,
-		models: provider.models.map((model) => buildModelConfig(
-			provider,
-			model,
-			requestHeaderProfiles,
-			clientHeaderCaptures,
-		)),
+		models: provider.models.map((model) => buildModelConfig(provider, model, requestHeaderProfiles, clientHeaderCaptures)),
 	};
 }
 
-async function buildRuntimeProviderConfig(
-	provider: StoredProvider,
-	requestHeaderProfiles: Record<string, StoredRequestHeaderProfile> = {},
-	clientHeaderCaptures: Partial<Record<BuiltInClientHeaderProfileId, StoredClientHeaderCapture>> = {},
-): Promise<ProviderConfig> {
-	return buildProviderConfig(provider, requestHeaderProfiles, clientHeaderCaptures);
+async function buildNativeProvider(providerId: string, provider: StoredProvider, config: ProviderConfig): Promise<Provider> {
+	// [喵喵喵]: 复用 Pi 的认证解析与多协议分派；临时 runtime 不读取用户认证或模型文件，也不刷新网络目录。
+	const runtime = await ModelRuntime.create({ credentials: emptyCredentialStore, modelsPath: null, allowModelNetwork: false, refreshOnCreate: false });
+	runtime.registerProvider(providerId, config);
+	const native = runtime.getProvider(providerId);
+	if (!native) throw new Error(t("无法构建接入：{providerId}", { providerId }));
+	return createProviderTransport(runtime, native, provider);
 }
 
 function asManagedApi(value: string | undefined, fallback: ApiKind): ApiKind {
@@ -87,7 +76,10 @@ export function buildModelRequestHeaders(
 		clientHeaderCaptures,
 		effectiveCompat,
 	);
-	return mergeModelRequestHeaders(model.headers, profileHeaders);
+	const explicitHeaders = mergeModelRequestHeaders(provider.headers, model.headers);
+	return provider.clientHeaderProfile === "custom"
+		? mergeModelRequestHeaders(explicitHeaders, profileHeaders)
+		: mergeModelRequestHeaders(profileHeaders, explicitHeaders);
 }
 
 function buildModelConfig(
@@ -134,19 +126,19 @@ async function canRegisterManagedProvider(providerId: string, provider: StoredPr
 function replaceManagedProviderConfig(
 	pi: ExtensionAPI,
 	providerId: string,
-	nextConfig: ProviderConfig,
+	nextConfig: Provider,
 ): void {
 	const previousConfig = REGISTERED_PROVIDER_CONFIGS.get(providerId);
 	try {
 		if (previousConfig) pi.unregisterProvider(providerId);
-		pi.registerProvider(providerId, nextConfig);
+		pi.registerProvider(nextConfig);
 		REGISTERED_PROVIDER_CONFIGS.set(providerId, nextConfig);
 	} catch (error) {
 		let rollbackError: unknown;
 		try {
 			if (previousConfig) {
 				pi.unregisterProvider(providerId);
-				pi.registerProvider(providerId, previousConfig);
+				pi.registerProvider(previousConfig);
 				REGISTERED_PROVIDER_CONFIGS.set(providerId, previousConfig);
 			} else {
 				REGISTERED_PROVIDER_CONFIGS.delete(providerId);
@@ -177,37 +169,14 @@ export async function reconcileProvider(
 		return;
 	}
 
-	const nextConfig = await buildRuntimeProviderConfig(provider, requestHeaderProfiles, clientHeaderCaptures);
-	replaceManagedProviderConfig(pi, providerId, nextConfig);
+	const config = buildProviderConfig(provider, requestHeaderProfiles, clientHeaderCaptures);
+	const native = await buildNativeProvider(providerId, provider, config);
+	replaceManagedProviderConfig(pi, providerId, native);
 }
-
-async function reconcileProviderCatalog(
-	pi: ExtensionAPI,
-	providerId: string,
-	provider: StoredProvider,
-	requestHeaderProfiles: Record<string, StoredRequestHeaderProfile>,
-	clientHeaderCaptures: Partial<Record<BuiltInClientHeaderProfileId, StoredClientHeaderCapture>>,
-): Promise<void> {
-	if (!(await canRegisterManagedProvider(providerId, provider))) {
-		unregisterManagedProvider(pi, providerId);
-		return;
-	}
-	const nextConfig = buildProviderConfig(provider, requestHeaderProfiles, clientHeaderCaptures);
-	replaceManagedProviderConfig(pi, providerId, nextConfig);
-}
-
-type StateProviderReconciler = (
-	pi: ExtensionAPI,
-	providerId: string,
-	provider: StoredProvider,
-	requestHeaderProfiles: Record<string, StoredRequestHeaderProfile>,
-	clientHeaderCaptures: Partial<Record<BuiltInClientHeaderProfileId, StoredClientHeaderCapture>>,
-) => Promise<void>;
 
 async function reconcileAllFromState(
 	pi: ExtensionAPI,
 	document: StateDocument,
-	reconcile: StateProviderReconciler,
 ): Promise<string[]> {
 	const warnings: string[] = [];
 	const activeProviderIds = new Set(
@@ -218,7 +187,7 @@ async function reconcileAllFromState(
 	}
 	for (const [providerId, provider] of Object.entries(document.providers)) {
 		try {
-			await reconcile(pi, providerId, provider, document.requestHeaderProfiles, document.clientHeaderCaptures);
+			await reconcileProvider(pi, providerId, provider, document.requestHeaderProfiles, document.clientHeaderCaptures);
 		} catch (error) {
 			warnings.push(`${providerId}: ${formatUnknownError(error)}`);
 		}
@@ -228,10 +197,10 @@ async function reconcileAllFromState(
 
 /** factory 阶段仅注册模型 catalog。 */
 export async function registerCatalogFromState(pi: ExtensionAPI, document: StateDocument): Promise<string[]> {
-	return reconcileAllFromState(pi, document, reconcileProviderCatalog);
+	return reconcileAllFromState(pi, document);
 }
 
 /** session_start 激活当前 state 的完整 provider transport。 */
 export async function registerAllFromState(pi: ExtensionAPI, document: StateDocument): Promise<string[]> {
-	return reconcileAllFromState(pi, document, reconcileProvider);
+	return reconcileAllFromState(pi, document);
 }

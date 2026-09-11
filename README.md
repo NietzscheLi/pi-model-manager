@@ -2,13 +2,13 @@
 
 [English](./README.en.md) · 简体中文
 
-[![Pi](https://img.shields.io/badge/Pi-%3E%3D0.84.2-6f42c1)](https://github.com/earendil-works/pi)
+[![Pi](https://img.shields.io/badge/Pi-%3E%3D0.85.1-6f42c1)](https://github.com/earendil-works/pi)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-0.3.4-2f81f7.svg)](https://github.com/NietzscheLi/pi-model-manager)
+[![Version](https://img.shields.io/badge/version-0.3.5-2f81f7.svg)](https://github.com/NietzscheLi/pi-model-manager)
 
 一个面向 [Pi](https://github.com/earendil-works/pi) 的 TUI 模型与接入管理扩展。它以 Pi 原生 `models.json` 为模型配置的唯一权威来源，并提供接入/模型编辑、请求头身份和协议兼容配置。
 
-> 当前稳定版为 `0.3.4`，要求 Pi `>=0.84.2`。
+> 当前稳定版为 `0.3.5`，要求 Pi `>=0.85.1`。
 >
 > 本项目基于 [Qihuanxishini/pi-model-manager](https://github.com/Qihuanxishini/pi-model-manager) 的源码维护，是其衍生/修改版本。请遵守原项目及本项目的 [AGPL-3.0 许可](./LICENSE)，分发修改版时须保留版权与许可声明、公开对应源码，并明确标注改动。
 
@@ -226,9 +226,11 @@ pi remove ../../path/to/pi-model-manager
 - 请求头身份
 - 一个或多个模型
 
-新建模型时，扩展会尝试从上游读取模型列表；整次发现（包括认证回退）共用一个 10 秒上限，可按 `Esc` 手动取消。失败或取消后仍可手动输入模型 ID。
+新建模型时，扩展会尝试从上游读取模型列表；整次发现共用一个 10 秒上限，可按 `Esc` 手动取消。列表与聊天使用同一 API 根地址和配置的认证信息，错误会区分认证失败、接口不存在、限流和上游异常。失败或取消后仍可手动输入模型 ID。
 
-Base URL 在填入时就会归一化为各协议 SDK 可直接使用的根地址：OpenAI 系补上 `/v1`，Anthropic 剔除 `/v1`，Google 在官方域名上补 `/v1beta`；你显式填的非根路径（如 `https://gw.example.com/custom`）不会被改写。切换 API 协议时地址会按新协议重新归一化。因此 `models.json` 里存的就是实际请求根地址，本扩展未加载时 Pi 也能直接使用。
+Base URL 表示 API 根地址：OpenAI 两种协议和 Anthropic 只填域名时补 `/v1`，显式填写路径时保留该路径，再追加协议端点。例如 Anthropic 的 `https://gw.example.com/xxx` 请求 `/xxx/messages`，模型列表请求 `/xxx/models`。Google 在官方根地址上补 `/v1beta`，自定义路径保持原样。Base URL 不支持查询参数（`?`）、片段（`#`）或内嵌认证；SDK 正常生成的请求参数不受影响。
+
+Anthropic 标准端点在写入 `models.json` 时转换为 Pi 原生 SDK 所需形式，因此未加载扩展时也能使用；自定义版本路径通过 `state.json` 私有标记衔接，依赖扩展的发送适配。代理开关只改变传输路线，最终端点、业务请求头和 payload 保持一致；代理失败会报错。
 
 ### Chat 协议兼容
 
@@ -273,17 +275,21 @@ Base URL 在填入时就会归一化为各协议 SDK 可直接使用的根地址
 
 自定义请求头会拒绝认证类敏感字段；认证信息应放在接入的 API key 配置中。
 
+显式原生请求头覆盖内置模板；选择自定义请求头时，自定义值拥有最终优先级。同名字段按大小写不敏感方式合并。自定义 `anthropic-beta` 清单完整保留，Adaptive Thinking 不会修改它。
+
 ## 配置文件
 
 | 路径 | 用途 |
 | --- | --- |
 | `~/.pi/agent/models.json` | Pi 原生接入与模型定义；模型配置的唯一权威来源 |
-| `~/.pi/agent/extensions/pi-model-manager/state.json` | 请求头选择、自定义请求头和 Fast mode 等扩展私有元数据 |
+| `~/.pi/agent/extensions/pi-model-manager/state.json` | 请求头选择、自定义请求头、Fast mode 和 Anthropic 自定义端点标记等扩展私有元数据 |
 | `UPSTREAM-DIFFERENCES.md` | 本项目与上游 Pi 的功能和配置边界差异 |
 
 扩展只会为明确受管理的 Provider 生成请求头和动态注册配置。所有权由 `state.json` 的受管理 ID 与 `models.json` Provider 节点中的 `piModelManager.managed` 标记共同确认，防止已删除的 Provider ID 在日后被同名原生配置复用时遭到插件接管。没有这些所有权信息的原生 Provider 保持未管理，其已有 Header 和未知原生字段不会因保存其它配置而被改写；Pi 内置 Provider 不在本扩展中提供编辑或删除入口。
 
 插件自身的配置写入由跨进程锁串行化，`enabledModels` 还同时遵守 Pi 的 `proper-lockfile` 锁；`models.json` 与 `state.json` 通过事务意图文件在中断后恢复，读取方不会采用事务进行中的半完成组合。外部编辑器不受这些锁约束，因此保存前仍会校验内容签名；检测到外部修改时会取消保存而不是覆盖。
+
+旧端点配置会升级到 v5 元数据，保持原最终聊天地址，迁移前的双文件快照保存在插件配置目录的 `base-url-v5-*.json`。快照包含原始配置，应按凭据文件保护；回退时需配套恢复代码、`models.json` 和 `state.json`。
 
 ## 密钥与安全
 
@@ -307,7 +313,8 @@ ${ANTHROPIC_API_KEY}
 
 | 组件 | 要求 |
 | --- | --- |
-| `@earendil-works/pi-coding-agent` | `>=0.84.2` |
+| `@earendil-works/pi-coding-agent` | `>=0.85.1` |
+| `@earendil-works/pi-ai` | `>=0.85.1` |
 | `@earendil-works/pi-tui` | `>=0.75.0` |
 | 运行模式 | `/model-manager` 需要 Pi TUI |
 

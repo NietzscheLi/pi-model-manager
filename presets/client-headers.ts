@@ -41,22 +41,15 @@ function cloneHeadersForCompat(
 	return cloned;
 }
 
-function deleteHeaderCaseInsensitive(headers: Record<string, string>, name: string): void {
-	const normalized = name.toLowerCase();
-	for (const existingName of Object.keys(headers)) {
-		if (existingName.toLowerCase() === normalized) delete headers[existingName];
-	}
-}
 
-/** 模型原生 headers 先保留，插件 profile 对同名字段拥有最终覆盖权。 */
+/** 按大小写不敏感的字段名合并请求头，后者覆盖前者。 */
 export function mergeModelRequestHeaders(
 	nativeHeaders: Record<string, string> | undefined,
 	profileHeaders: Record<string, string> | undefined,
 ): Record<string, string> | undefined {
-	const merged = cloneStringRecord(nativeHeaders);
-	for (const [name, value] of Object.entries(profileHeaders ?? {})) {
-		deleteHeaderCaseInsensitive(merged, name);
-		merged[name] = value;
+	const merged: Record<string, string> = {};
+	for (const headers of [nativeHeaders, profileHeaders]) {
+		for (const [name, value] of Object.entries(headers ?? {})) merged[name.toLowerCase()] = value;
 	}
 	return hasStringRecordEntries(merged) ? merged : undefined;
 }
@@ -67,7 +60,11 @@ export function stripManagedClientHeaders(
 	profileHeaders: Record<string, string> | undefined,
 ): Record<string, string> | undefined {
 	const nativeHeaders = cloneStringRecord(storedHeaders);
-	for (const name of Object.keys(profileHeaders ?? {})) deleteHeaderCaseInsensitive(nativeHeaders, name);
+	for (const [name, value] of Object.entries(profileHeaders ?? {})) {
+		for (const [storedName, storedValue] of Object.entries(nativeHeaders)) {
+			if (storedName.toLowerCase() === name.toLowerCase() && storedValue === value) delete nativeHeaders[storedName];
+		}
+	}
 	return hasStringRecordEntries(nativeHeaders) ? nativeHeaders : undefined;
 }
 
@@ -102,7 +99,7 @@ export function getClientHeadersForProfile(
 			: CODEX_CLI_CLIENT_HEADERS;
 		return cloneStringRecord(headers);
 	}
-	return hasStringRecordEntries(customHeaders) ? cloneHeadersForCompat(customHeaders, api, compat) : undefined;
+	return hasStringRecordEntries(customHeaders) ? cloneStringRecord(customHeaders) : undefined;
 }
 export function getClientHeaderProfileDisplay(profile: ClientHeaderProfileId, api: ApiKind): string {
 	const resolved = resolveClientHeaderProfile(profile, api);

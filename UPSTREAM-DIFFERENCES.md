@@ -40,7 +40,7 @@
 
 - `models.json` 仍是模型配置的唯一权威来源；扩展不会另建一套模型运行时数据库。
 - 未被扩展明确接管的原生 Provider 不会被自动注册、改写或删除。
-- 扩展要求 Pi `>=0.84.2`，并依赖 `@earendil-works/pi-tui >=0.75.0`。
+- 扩展要求 Pi `>=0.85.1`，并依赖 `@earendil-works/pi-ai >=0.85.1`、`@earendil-works/pi-tui >=0.75.0`。
 
 ## 上游同步原则
 
