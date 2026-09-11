@@ -22,6 +22,7 @@ import type {
 	StoredModel,
 	StoredProvider,
 	StoredRequestHeaderProfile,
+	StoredApiKey,
 	OpenAIResponsesStreamCompletionMode,
 	ThinkingLevelMap,
 	TokenCost,
@@ -43,6 +44,7 @@ interface ProviderMetadata {
 	clientHeaderProfile?: ClientHeaderProfileId;
 	requestHeaderProfileId?: string;
 	customClientHeaders?: Record<string, string>;
+	apiKeys?: StoredApiKey[];
 	httpProxyEnabled?: boolean;
 	httpProxyUrl?: string;
 	openAIResponsesStreamCompletionMode?: OpenAIResponsesStreamCompletionMode;
@@ -51,6 +53,8 @@ interface ProviderMetadata {
 
 interface ModelMetadata {
 	openAIServiceTier?: OpenAIServiceTier;
+	/** 模型级命名 key 选择；未设置时使用供应商默认 key。 */
+	apiKeyId?: string;
 	anthropicApiRoot?: boolean;
 }
 
@@ -123,6 +127,25 @@ function readOptionalStringRecord(record: Record<string, unknown>, key: string, 
 	const value = record[key];
 	if (value === undefined) return undefined;
 	return readStringRecord(value, `${path}.${key}`);
+}
+
+function readOptionalApiKeys(record: Record<string, unknown>, key: string, path: string): StoredApiKey[] | undefined {
+	const value = record[key];
+	if (value === undefined) return undefined;
+	if (!Array.isArray(value)) fail(`${path}.${key}`, t("必须是数组"));
+	const seen = new Set<string>();
+	return value.map((entry, index) => {
+		const entryPath = `${path}.${key}[${index}]`;
+		if (!isObjectRecord(entry)) fail(entryPath, t("必须是对象"));
+		const id = readOptionalString(entry, "id", entryPath);
+		if (!id) fail(`${entryPath}.id`, t("key ID 不能为空"));
+		if (seen.has(id)) fail(`${entryPath}.id`, t("key ID 重复：{keyId}", { keyId: id }));
+		seen.add(id);
+		const keyValue = readOptionalString(entry, "value", entryPath);
+		if (keyValue === undefined) fail(`${entryPath}.value`, t("必须是字符串"));
+		const label = readOptionalString(entry, "label", entryPath);
+		return { id, value: keyValue, ...(label ? { label } : {}) };
+	});
 }
 
 function readProviderIdList(value: unknown, path: string): string[] {
@@ -250,6 +273,8 @@ function readProviderMetadata(raw: unknown, path: string): ProviderMetadata {
 	if (requestHeaderProfileId !== undefined) metadata.requestHeaderProfileId = requestHeaderProfileId;
 	const customClientHeaders = readOptionalStringRecord(raw, "customClientHeaders", path);
 	if (customClientHeaders) metadata.customClientHeaders = customClientHeaders;
+	const apiKeys = readOptionalApiKeys(raw, "apiKeys", path);
+	if (apiKeys) metadata.apiKeys = apiKeys;
 	const httpProxyEnabled = readOptionalBoolean(raw, "httpProxyEnabled", path);
 	if (httpProxyEnabled !== undefined) metadata.httpProxyEnabled = httpProxyEnabled;
 	const httpProxyUrl = readOptionalString(raw, "httpProxyUrl", path);
@@ -266,6 +291,8 @@ function readModelMetadata(raw: unknown, path: string): ModelMetadata {
 	if (anthropicApiRoot) metadata.anthropicApiRoot = true;
 	const openAIServiceTier = readOptionalOpenAIServiceTier(raw, "openAIServiceTier", path);
 	if (openAIServiceTier) metadata.openAIServiceTier = openAIServiceTier;
+	const apiKeyId = readOptionalString(raw, "apiKeyId", path);
+	if (apiKeyId !== undefined) metadata.apiKeyId = apiKeyId;
 	return metadata;
 }
 
@@ -403,6 +430,7 @@ function extractProviderMetadata(provider: StoredProvider): ProviderMetadata {
 	if (provider.openAIResponsesStreamCompletionMode === "terminal-event") {
 		metadata.openAIResponsesStreamCompletionMode = "terminal-event";
 	}
+	if (provider.apiKeys && provider.apiKeys.length > 0) metadata.apiKeys = cloneJson(provider.apiKeys);
 	return metadata;
 }
 
@@ -410,6 +438,7 @@ function extractModelMetadata(model: StoredModel, provider: StoredProvider): Mod
 	const metadata: ModelMetadata = {};
 	if (toNativeBaseUrl(model.api ?? provider.api, model.baseUrl ?? provider.baseUrl).anthropicApiRoot) metadata.anthropicApiRoot = true;
 	if (model.openAIServiceTier) metadata.openAIServiceTier = model.openAIServiceTier;
+	if (model.apiKeyId) metadata.apiKeyId = model.apiKeyId;
 	return metadata;
 }
 

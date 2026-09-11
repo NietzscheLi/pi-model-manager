@@ -136,6 +136,7 @@ Ctrl+S 保存并启用模型；不切换当前会话模型
 - 可为 OpenAI Responses 模型启用 `service_tier=priority`（Fast mode）。
 - 提供自动推荐、禁用、Claude Code、Codex 和自定义请求头模式。
 - API key 支持字面值、`$ENV_VAR` / `${ENV_VAR}` 和 Pi 的 `!command` 引用。
+- 同一接入可配置多个命名 API key（仅存于 `state.json` 私有元数据），模型可按需选择；默认 key 仍写入 `models.json`。
 - 使用跨进程锁与可恢复双文件事务持久化配置，并在保存后重新注册受管理的 Provider。
 - 模型保存时可选择 `models.dev`（默认）或 OpenRouter 同步上下文、最大输出、Thinking 等级与费用。
 
@@ -233,6 +234,15 @@ Base URL 表示 API 根地址：OpenAI 两种协议和 Anthropic 只填域名时
 
 Anthropic 标准端点在写入 `models.json` 时转换为 Pi 原生 SDK 所需形式，因此未加载扩展时也能使用；自定义版本路径通过 `state.json` 私有标记衔接，依赖扩展的发送适配。代理开关只改变传输路线，最终端点、业务请求头和 payload 保持一致；代理失败会报错。
 
+### 多个 API key
+
+接入的 **API key** 行配置默认 key（写入 `models.json`）。接入编辑器另有 **API keys** 行用于维护该接入的命名 key：
+
+- 每个命名 key 有 ID、可选显示名称和值；值支持明文、`$ENV_VAR` / `${ENV_VAR}` 和 Pi 的 `!command`。
+- 命名 key 是插件私有元数据，只保存在 `state.json`，不会写入 `models.json`。
+- 模型编辑器的 **API key** 行可选择「继承默认」或某个命名 key；被选中的 key 在该模型的请求中覆盖默认 key。
+- 删除仍被模型引用的命名 key 时，保存接入会同时清除这些模型的引用。
+
 ### Chat 协议兼容
 
 当 API 协议为 `openai-completions`（OpenAI Chat）时，接入编辑器会显示「协议兼容」。用 `←` / `→` 切换，或按 `Enter` 查看完整说明；该设置作用于接入内的所有模型。
@@ -308,6 +318,7 @@ ${ANTHROPIC_API_KEY}
 其他注意事项：
 
 - 自定义请求头不是保存认证凭据的位置。
+- 命名 API key 只保存在 `state.json`；引用明文时按凭据文件保护，环境变量或命令引用更安全。
 - 拉取模型列表会向所配置的上游地址发起网络请求。
 - 仓库忽略 `state.json`、运行日志、请求捕获数据和其他机器专属文件。
 

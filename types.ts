@@ -68,8 +68,17 @@ export interface StoredModel {
 	clientHeaderProfile?: ClientHeaderProfileId;
 	requestHeaderProfileId?: string;
 	customClientHeaders?: Record<string, string>;
+	/** 指向供应商 apiKeys 中的命名 key；未设置时使用默认 key。 */
+	apiKeyId?: string;
 	openAIServiceTier?: OpenAIServiceTier;
 	compat?: CompatSettings;
+}
+
+/** 供应商下的命名 API key；模型通过 id 引用，默认 key 仍存于 models.json 的 apiKey。 */
+export interface StoredApiKey {
+	id: string;
+	label?: string;
+	value: string;
 }
 
 export interface StoredProvider {
@@ -88,6 +97,8 @@ export interface StoredProvider {
 	clientHeaderProfile: ClientHeaderProfileId;
 	requestHeaderProfileId?: string;
 	customClientHeaders?: Record<string, string>;
+	/** 插件私有命名 key；models.json 只保存默认 key。 */
+	apiKeys?: StoredApiKey[];
 	httpProxyEnabled?: boolean;
 	httpProxyUrl?: string;
 	/** Responses 终态事件已完整转交后，是否主动结束本地 SSE 流。 */
@@ -120,6 +131,7 @@ export interface ProviderDraft {
 	clientHeaderProfile: ClientHeaderProfileId;
 	requestHeaderProfileId?: string;
 	customClientHeaders: Record<string, string>;
+	apiKeys: StoredApiKey[];
 	httpProxyEnabled: boolean;
 	httpProxyUrl: string;
 	selectedIndex: number;
@@ -135,6 +147,9 @@ export interface ModelDraft {
 	clientHeaderProfile: ClientHeaderProfileId;
 	requestHeaderProfileId?: string;
 	customClientHeaders: Record<string, string>;
+	apiKeys: StoredApiKey[];
+	/** 模型级 key 选择；未设置时继承供应商默认 key。 */
+	apiKeyId?: string;
 	httpProxyEnabled: boolean;
 	httpProxyUrl: string;
 	modelId: string;

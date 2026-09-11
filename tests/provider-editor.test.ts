@@ -20,6 +20,7 @@ function createChatDraft(): ProviderDraft {
 		authHeader: false,
 		clientHeaderProfile: "recommended",
 		customClientHeaders: {},
+		apiKeys: [],
 		httpProxyEnabled: false,
 		httpProxyUrl: "http://127.0.0.1:7890",
 		openAIResponsesStreamCompletionMode: "standard",

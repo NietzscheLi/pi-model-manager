@@ -48,6 +48,18 @@ function describeModelApi(draft: ModelDraft): string {
 		: t("继承供应商（{api}）", { api: formatApiShort(draft.providerApi) });
 }
 
+function describeModelApiKey(draft: ModelDraft): string {
+	if (!draft.apiKeyId) return t("继承默认");
+	const key = draft.apiKeys.find((candidate) => candidate.id === draft.apiKeyId);
+	return key?.label ? `${draft.apiKeyId} — ${key.label}` : draft.apiKeyId;
+}
+
+// [喵喵喵]: 命名 key 用于模型发现；未选时回退供应商默认 key。
+function resolveModelApiKey(draft: ModelDraft): string {
+	if (!draft.apiKeyId) return draft.apiKey;
+	return draft.apiKeys.find((candidate) => candidate.id === draft.apiKeyId)?.value ?? draft.apiKey;
+}
+
 // 模型级协议只改变该模型的 wire 格式；派生字段按新协议收敛，避免保存后残留不适用字段。
 function applyModelApiChange(draft: ModelDraft, override: ApiKind | undefined): void {
 	const nextApi = override ?? draft.providerApi;
@@ -99,6 +111,7 @@ function buildRows(draft: ModelDraft): FieldRow[] {
 		{ id: "fetch", label: t("重新拉取"), value: t("上游模型列表") },
 		{ id: "modelName", label: t("显示名称"), value: draft.modelName || t("默认 = 模型 ID") },
 		{ id: "apiOverride", label: t("API 协议"), value: describeModelApi(draft) },
+		{ id: "apiKeyId", label: "API key", value: describeModelApiKey(draft) },
 		{ id: "metadataSource", label: t("元数据源"), value: draft.metadataSource === "manual" ? t("关闭（保留手工值）") : draft.metadataSource },
 		{ id: "visionInput", label: t("视觉支持"), value: describeVisionInput(draft.inputKinds), adjustable: true },
 		{ id: "reasoning", label: "Thinking", value: describeReasoningMode(draft.reasoningMode), adjustable: true },
@@ -139,7 +152,7 @@ async function pickModelFromUpstream(
 		providerId: draft.providerId,
 		api: draft.api,
 		baseUrl: draft.baseUrl,
-		apiKey: draft.apiKey,
+		apiKey: resolveModelApiKey(draft),
 		authHeader: draft.authHeader,
 		clientHeaderProfile: draft.clientHeaderProfile,
 		customClientHeaders: getSelectedCustomHeaders(draft, requestHeaderProfiles),
@@ -224,6 +237,16 @@ async function editField(
 	if (fieldId === "modelName") {
 		const value = await ctx.ui.input(t("显示名称（当前：{current}，可空默认用模型 ID；输入空格清空）", { current: draft.modelName || t("<空>") }), draft.modelName);
 		if (value !== undefined) draft.modelName = value.trim();
+		return;
+	}
+	if (fieldId === "apiKeyId") {
+		const choice = await showOptionPicker(ctx, t("选择 API key"), [
+			{ id: "inherit", label: t("继承默认") },
+			...draft.apiKeys.map((key) => ({ id: key.id, label: key.label ? `${key.id} — ${key.label}` : key.id })),
+		], draft.apiKeyId ?? "inherit");
+		if (!choice) return;
+		if (choice.id === "inherit") delete draft.apiKeyId;
+		else draft.apiKeyId = choice.id;
 		return;
 	}
 	if (fieldId === "apiOverride") {
