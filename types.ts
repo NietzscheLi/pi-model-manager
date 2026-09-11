@@ -20,6 +20,8 @@ export type ClientHeaderProfileId = "recommended" | "disabled" | BuiltInClientHe
 export type CompatSettings = Record<string, unknown>;
 export type OpenAIServiceTier = "priority";
 
+export const DEFAULT_PROVIDER_HTTP_PROXY_URL = "http://127.0.0.1:7890";
+
 // ========== 持久配置合成 schema ==========
 
 export interface TokenCostTier {
@@ -86,6 +88,8 @@ export interface StoredProvider {
 	clientHeaderProfile: ClientHeaderProfileId;
 	requestHeaderProfileId?: string;
 	customClientHeaders?: Record<string, string>;
+	httpProxyEnabled?: boolean;
+	httpProxyUrl?: string;
 	/** Responses 终态事件已完整转交后，是否主动结束本地 SSE 流。 */
 	openAIResponsesStreamCompletionMode?: OpenAIResponsesStreamCompletionMode;
 	models: StoredModel[];
@@ -116,6 +120,8 @@ export interface ProviderDraft {
 	clientHeaderProfile: ClientHeaderProfileId;
 	requestHeaderProfileId?: string;
 	customClientHeaders: Record<string, string>;
+	httpProxyEnabled: boolean;
+	httpProxyUrl: string;
 	selectedIndex: number;
 }
 
@@ -129,6 +135,8 @@ export interface ModelDraft {
 	clientHeaderProfile: ClientHeaderProfileId;
 	requestHeaderProfileId?: string;
 	customClientHeaders: Record<string, string>;
+	httpProxyEnabled: boolean;
+	httpProxyUrl: string;
 	modelId: string;
 	modelName: string;
 	inputKinds: ModelInputKind[];

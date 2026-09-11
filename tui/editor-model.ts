@@ -124,6 +124,8 @@ async function pickModelFromUpstream(
 		authHeader: draft.authHeader,
 		clientHeaderProfile: draft.clientHeaderProfile,
 		customClientHeaders: getSelectedCustomHeaders(draft, requestHeaderProfiles),
+		httpProxyEnabled: draft.httpProxyEnabled,
+		httpProxyUrl: draft.httpProxyUrl,
 		clientHeaderCaptures,
 	};
 	const outcome = await ctx.ui.custom<ModelListFetchOutcome>((tui, theme, _keybindings, done) => {

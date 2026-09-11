@@ -4,6 +4,7 @@ import { once } from "node:events";
 import test from "node:test";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { reconcileProvider, unregisterManagedProvider } from "../provider-registrar.ts";
+import { closeLocalProxyServer } from "../local-proxy-service.ts";
 import { createProviderTransport } from "../provider-transport.ts";
 import type { ApiKind, StoredProvider } from "../types.ts";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -57,7 +58,7 @@ function provider(api: ApiKind, baseUrl: string): StoredProvider {
 	};
 }
 
-test("真实 Pi：四协议端点、业务头、payload 和 SSE 结果一致", { skip: !realRuntime, timeout: 30_000 }, async () => {
+test("真实 Pi：四协议代理前后端点、业务头、payload 和 SSE 结果一致", { skip: !realRuntime, timeout: 30_000 }, async () => {
 	const captured: { url: string; headers: Record<string, unknown>; body: unknown }[] = [];
 	const serverErrors: string[] = [];
 	let api: ApiKind = "openai-completions";
@@ -100,13 +101,18 @@ test("真实 Pi：四协议端点、业务头、payload 和 SSE 结果一致", {
 			const hostname = api === "openai-completions" ? "api.deepseek.com" : "gateway.invalid";
 			const config = provider(api, `http://${hostname}/xxx`);
 			const untouched = structuredClone(config);
-			await reconcileProvider(pi, id, config);
-			const model = runtime.getModel(id, config.models[0]!.id)!;
-			assert.equal(model.baseUrl, config.baseUrl);
-			const result = await runtime.streamSimple(model, context as any, { reasoning: "high", maxTokens: 12000 }).result();
-			assert.equal(result.stopReason, "stop", `${api}: ${result.errorMessage}; ${serverErrors.join("\n")}`);
-			assert.equal(result.content.filter((block: any) => block.type === "text").map((block: any) => block.text).join(""), "ok");
+			const results: unknown[] = [];
+			for (const enabled of [false, true]) {
+				await reconcileProvider(pi, id, { ...config, httpProxyEnabled: enabled, httpProxyUrl: localUrl });
+				const model = runtime.getModel(id, config.models[0]!.id)!;
+				assert.equal(model.baseUrl, config.baseUrl);
+				const result = await runtime.streamSimple(model, context as any, { reasoning: "high", maxTokens: 12000 }).result();
+				assert.equal(result.stopReason, "stop", `${api}, proxy=${enabled}: ${result.errorMessage}; ${serverErrors.join("\n")}`);
+				assert.equal(result.content.filter((block: any) => block.type === "text").map((block: any) => block.text).join(""), "ok");
+				results.push(captured.at(-1));
+			}
 			assert.deepEqual(config, untouched);
+			assert.deepEqual(results[1], results[0], api);
 			const request = captured.at(-1)!;
 			assert.equal(request.headers["user-agent"], "wire-fixture");
 			assert.equal(request.headers["x-test-client"], "user-value");
@@ -125,9 +131,10 @@ test("真实 Pi：四协议端点、业务头、payload 和 SSE 结果一致", {
 			}
 			unregisterManagedProvider(pi, id);
 		}
-		assert.equal(captured.length, 4);
+		assert.equal(captured.length, 8);
 	} finally {
 		globalThis.fetch = originalFetch;
+		await closeLocalProxyServer();
 		server.closeAllConnections();
 		await new Promise<void>((resolve) => server.close(() => resolve()));
 	}
@@ -238,3 +245,67 @@ test("真实 Pi：标准 Anthropic 原生可用，加载插件后独立端点和
 	}
 });
 
+test("真实 Pi：四协议代理流可在结束前收到文本并取消，代理失败不会直连", { skip: !realRuntime, timeout: 20_000 }, async () => {
+	let api: ApiKind = "openai-completions";
+	let failProxy = false;
+	let upstreamClosed = Promise.withResolvers<void>();
+	const server = createServer(async (req, res) => {
+		for await (const _ of req) {}
+		res.on("close", () => upstreamClosed.resolve());
+		if (failProxy) {
+			res.writeHead(502, { "content-type": "application/json" });
+			res.end(JSON.stringify({ error: { message: "proxy fixture failure" } }));
+			return;
+		}
+		res.writeHead(200, { "content-type": "text/event-stream" });
+		const frames = { "openai-completions": 1, "anthropic-messages": 3, "openai-responses": 4, "google-generative-ai": 1 };
+		res.write(`${sse(api).split("\n\n").slice(0, frames[api]).join("\n\n")}\n\n`);
+	});
+	server.listen(0, "127.0.0.1");
+	await once(server, "listening");
+	const proxyUrl = `http://127.0.0.1:${(server.address() as any).port}`;
+	const originalFetch = globalThis.fetch;
+	let directRequests = 0;
+	globalThis.fetch = async (input, init) => {
+		const request = new Request(input, init);
+		if (new URL(request.url).hostname === "127.0.0.1") return originalFetch(request);
+		directRequests += 1;
+		throw new Error("Unexpected direct request");
+	};
+	const runtime = await ModelRuntime.create({ credentials: emptyCredentials, modelsPath: null, allowModelNetwork: false, refreshOnCreate: false });
+	const pi = { registerProvider: (native: any) => runtime.registerNativeProvider(native), unregisterProvider: (id: string) => runtime.unregisterProvider(id) } as any;
+	try {
+		for (api of ["openai-completions", "openai-responses", "anthropic-messages", "google-generative-ai"] as ApiKind[]) {
+			const config = { ...provider(api, "http://gateway.invalid/xxx"), httpProxyEnabled: true, httpProxyUrl: proxyUrl };
+			await reconcileProvider(pi, "cancel-wire", config);
+			upstreamClosed = Promise.withResolvers<void>();
+			const controller = new AbortController();
+			const stream = runtime.streamSimple(runtime.getModel("cancel-wire", config.models[0]!.id)!, context as any, { signal: controller.signal });
+			let receivedText = false;
+			for await (const event of stream) {
+				if (event.type === "text_delta") {
+					receivedText = true;
+					controller.abort();
+					break;
+				}
+			}
+			assert.equal(receivedText, true, api);
+			assert.equal((await stream.result()).stopReason, "aborted", api);
+			await upstreamClosed.promise;
+			unregisterManagedProvider(pi, "cancel-wire");
+		}
+		failProxy = true;
+		const config = { ...provider("openai-completions", "http://gateway.invalid/xxx"), httpProxyEnabled: true, httpProxyUrl: proxyUrl };
+		await reconcileProvider(pi, "failure-wire", config);
+		const result = await runtime.streamSimple(runtime.getModel("failure-wire", config.models[0]!.id)!, context as any, { signal: AbortSignal.timeout(5000) }).result();
+		assert.equal(result.stopReason, "error", result.errorMessage);
+		assert.match(result.errorMessage!, /proxy fixture failure|502/);
+		assert.equal(directRequests, 0);
+		unregisterManagedProvider(pi, "failure-wire");
+	} finally {
+		globalThis.fetch = originalFetch;
+		await closeLocalProxyServer();
+		server.closeAllConnections();
+		await new Promise<void>((resolve) => server.close(() => resolve()));
+	}
+});

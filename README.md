@@ -282,7 +282,7 @@ Anthropic 标准端点在写入 `models.json` 时转换为 Pi 原生 SDK 所需�
 | 路径 | 用途 |
 | --- | --- |
 | `~/.pi/agent/models.json` | Pi 原生接入与模型定义；模型配置的唯一权威来源 |
-| `~/.pi/agent/extensions/pi-model-manager/state.json` | 请求头选择、自定义请求头、Fast mode 和 Anthropic 自定义端点标记等扩展私有元数据 |
+| `~/.pi/agent/extensions/pi-model-manager/state.json` | 请求头选择、自定义请求头、代理开关、Fast mode 和 Anthropic 自定义端点标记等扩展私有元数据 |
 | `UPSTREAM-DIFFERENCES.md` | 本项目与上游 Pi 的功能和配置边界差异 |
 
 扩展只会为明确受管理的 Provider 生成请求头和动态注册配置。所有权由 `state.json` 的受管理 ID 与 `models.json` Provider 节点中的 `piModelManager.managed` 标记共同确认，防止已删除的 Provider ID 在日后被同名原生配置复用时遭到插件接管。没有这些所有权信息的原生 Provider 保持未管理，其已有 Header 和未知原生字段不会因保存其它配置而被改写；Pi 内置 Provider 不在本扩展中提供编辑或删除入口。

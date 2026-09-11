@@ -4,6 +4,7 @@ import { lazyStream, type Provider } from "@earendil-works/pi-ai";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { mergeModelRequestHeaders } from "./presets/client-headers.ts";
 import { t } from "./i18n.ts";
+import { getProviderHttpProxyUrl, openTemporaryLocalProxyRoute } from "./local-proxy-service.ts";
 import { appendUrlPath, resolveRuntimeBaseUrl, validateRequestBaseUrl } from "./runtime-base-url.ts";
 import type { ApiKind, StoredProvider } from "./types.ts";
 
@@ -95,6 +96,7 @@ export function createProviderTransport(runtime: ModelRuntime, native: Provider,
 		const baseUrl = resolveRuntimeBaseUrl(api as ApiKind, model.baseUrl ?? provider.baseUrl);
 		return [model.id, { api, baseUrl }];
 	}));
+	const proxyUrl = provider.httpProxyEnabled ? getProviderHttpProxyUrl(provider) : undefined;
 
 	const wrap = (stream: Provider["streamSimple"]): Provider["streamSimple"] => (model, context, options) => lazyStream(model, async () => {
 		const endpoint = endpoints.get(model.id);
@@ -112,12 +114,24 @@ export function createProviderTransport(runtime: ModelRuntime, native: Provider,
 				const { "user-agent": userAgent, ...headers } = options.headers;
 				options = { ...options, headers: { ...headers, "User-Agent": userAgent } };
 			}
-			return stream(upstreamModel, context, options);
+			if (!proxyUrl) return stream(upstreamModel, context, options);
+			const route = await openTemporaryLocalProxyRoute(native.id, endpoint.baseUrl, proxyUrl);
+			try {
+				// [喵喵喵]: Google 不支持请求级 fetch，只有发送副本使用本地地址；其模型能力判断基于模型 ID。
+				const result = stream({ ...upstreamModel, baseUrl: route.url }, context, options);
+				void result.result().then(() => route.close(), () => route.close());
+				return result;
+			} catch (error) {
+				route.close();
+				throw error;
+			}
 		}
 		if (model.api !== "openai-completions" && model.api !== "openai-responses" && model.api !== "anthropic-messages") {
+			if (proxyUrl) throw new Error(t("该协议尚不支持接入级代理：{api}", { api: model.api }));
 			return stream(upstreamModel, context, options);
 		}
-		if (model.api !== "anthropic-messages"
+		if (!proxyUrl
+			&& model.api !== "anthropic-messages"
 			&& !(model.api === "openai-responses" && provider.openAIResponsesStreamCompletionMode === "terminal-event")) {
 			return stream(upstreamModel, context, options);
 		}
@@ -134,7 +148,18 @@ export function createProviderTransport(runtime: ModelRuntime, native: Provider,
 				url.pathname = new URL(appendUrlPath(endpoint.baseUrl, "messages")).pathname;
 				request = new Request(url, request);
 			}
-			const response = await fetchImpl(request);
+			let response: Response;
+			if (!proxyUrl) {
+				response = await fetchImpl(request);
+			} else {
+				const route = await openTemporaryLocalProxyRoute(native.id, request.url, proxyUrl);
+				try {
+					response = await fetchImpl(new Request(route.url, request));
+				} finally {
+					// [喵喵喵]: 收到响应头时转发端已经取得路由；删除查找项不会中断已建立的 SSE 流。
+					route.close();
+				}
+			}
 			if (model.api === "openai-responses"
 				&& provider.openAIResponsesStreamCompletionMode === "terminal-event") {
 				// [喵喵喵]: 某些中转已发出正式终态事件却保持连接；完整转交该 frame 后即可按协议结束本地流。

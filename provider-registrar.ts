@@ -6,6 +6,7 @@ import { isBuiltinProviderId } from "./builtin-model-catalog.ts";
 import { mergeCompatSettings } from "./compat-settings.ts";
 import { formatUnknownError } from "./common.ts";
 import { t } from "./i18n.ts";
+import { removeProviderLocalProxyRoutes } from "./local-proxy-service.ts";
 import { getClientHeadersForProfile, mergeModelRequestHeaders } from "./presets/client-headers.ts";
 import { createProviderTransport } from "./provider-transport.ts";
 import { resolveRuntimeBaseUrl } from "./runtime-base-url.ts";
@@ -113,8 +114,9 @@ function resolveProviderCustomHeaders(
 	return provider.customClientHeaders ?? {};
 }
 
-/** 注销本扩展实际注册的动态 provider。 */
+/** 注销本扩展实际注册的动态 provider，并同步清理代理路由和回滚快照。 */
 export function unregisterManagedProvider(pi: ExtensionAPI, providerId: string): void {
+	removeProviderLocalProxyRoutes(providerId);
 	const wasRegistered = REGISTERED_PROVIDER_CONFIGS.delete(providerId);
 	if (wasRegistered) pi.unregisterProvider(providerId);
 }
@@ -195,7 +197,7 @@ async function reconcileAllFromState(
 	return warnings;
 }
 
-/** factory 阶段仅注册模型 catalog。 */
+/** factory 阶段仅注册模型 catalog，不启动长生命周期本地代理。 */
 export async function registerCatalogFromState(pi: ExtensionAPI, document: StateDocument): Promise<string[]> {
 	return reconcileAllFromState(pi, document);
 }

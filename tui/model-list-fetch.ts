@@ -4,6 +4,7 @@
 import { ModelRuntime, type ProviderConfig } from "@earendil-works/pi-coding-agent";
 import { formatUnknownError } from "../common.ts";
 import { t } from "../i18n.ts";
+import { openTemporaryLocalProxyRoute, type TemporaryLocalProxyRoute } from "../local-proxy-service.ts";
 import { getClientHeadersForProfile, mergeModelRequestHeaders } from "../presets/client-headers.ts";
 import { appendUrlPath, resolveRuntimeBaseUrl, validateRequestBaseUrl } from "../runtime-base-url.ts";
 import { isSensitiveHeaderName, redactSensitiveText } from "../sensitive-redaction.ts";
@@ -107,23 +108,51 @@ async function resolveFetchAuth(
 	};
 }
 
+interface ModelListProxyConfig {
+	providerId: string;
+	proxyUrl: string;
+}
+
+async function openProxyRouteWithSignal(
+	proxyConfig: ModelListProxyConfig,
+	url: string,
+	signal: AbortSignal,
+): Promise<TemporaryLocalProxyRoute> {
+	const routePromise = openTemporaryLocalProxyRoute(proxyConfig.providerId, url, proxyConfig.proxyUrl);
+	try {
+		return await waitWithSignal(routePromise, signal);
+	} catch (error) {
+		routePromise.then((route) => route.close(), () => undefined);
+		throw error;
+	}
+}
+
 async function requestModelIds(
 	url: string,
 	headers: Record<string, string>,
 	api: ApiKind,
+	proxyConfig: ModelListProxyConfig | undefined,
 	signal: AbortSignal,
 ): Promise<string[]> {
 	throwIfAborted(signal);
-	const response = await fetch(url, { headers, signal });
-	const text = await readBoundedResponseText(response, signal);
-	if (!response.ok) {
-		const reason = response.status === 401 || response.status === 403 ? t("认证失败，请检查 API key 和认证头")
-			: response.status === 404 ? t("模型列表接口不存在，可继续手动添加模型")
-			: response.status === 429 ? t("模型列表请求被限流，请稍后重试")
-			: response.status >= 500 ? t("模型列表上游服务异常") : t("模型列表请求失败");
-		throw new Error(`${reason} (HTTP ${response.status}): ${text.slice(0, 240)}`);
+	let temporaryProxyRoute: TemporaryLocalProxyRoute | undefined;
+	try {
+		temporaryProxyRoute = proxyConfig
+			? await openProxyRouteWithSignal(proxyConfig, url, signal)
+			: undefined;
+		const response = await fetch(temporaryProxyRoute?.url ?? url, { headers, signal });
+		const text = await readBoundedResponseText(response, signal);
+		if (!response.ok) {
+			const reason = response.status === 401 || response.status === 403 ? t("认证失败，请检查 API key 和认证头")
+				: response.status === 404 ? t("模型列表接口不存在，可继续手动添加模型")
+				: response.status === 429 ? t("模型列表请求被限流，请稍后重试")
+				: response.status >= 500 ? t("模型列表上游服务异常") : t("模型列表请求失败");
+			throw new Error(`${reason} (HTTP ${response.status}): ${text.slice(0, 240)}`);
+		}
+		return extractValidatedModelIds(JSON.parse(text), api);
+	} finally {
+		temporaryProxyRoute?.close();
 	}
-	return extractValidatedModelIds(JSON.parse(text), api);
 }
 
 export interface FetchModelIdsParams {
@@ -134,6 +163,8 @@ export interface FetchModelIdsParams {
 	authHeader?: boolean;
 	clientHeaderProfile: ClientHeaderProfileId;
 	customClientHeaders: Record<string, string>;
+	httpProxyEnabled: boolean;
+	httpProxyUrl: string;
 	clientHeaderCaptures?: Partial<Record<BuiltInClientHeaderProfileId, StoredClientHeaderCapture>>;
 }
 
@@ -159,12 +190,16 @@ async function fetchModelIdsWithSignal(
 	} else if (params.api === "google-generative-ai") defaults["x-goog-api-key"] = auth.apiKey;
 	else defaults.authorization = `Bearer ${auth.apiKey}`;
 	const headers = mergeModelRequestHeaders(defaults, auth.headers)!;
+	const proxyConfig = params.httpProxyEnabled
+		? { providerId: params.providerId, proxyUrl: params.httpProxyUrl }
+		: undefined;
 
 	// [喵喵喵]: 列表与聊天共享 API 根地址；错误不触发跨路径或跨认证形式的探测。
 	const modelIds = await requestModelIds(
 		appendUrlPath(resolveRuntimeBaseUrl(params.api, params.baseUrl), "models"),
 		headers,
 		params.api,
+		proxyConfig,
 		signal,
 	);
 	return { status: "loaded", modelIds };

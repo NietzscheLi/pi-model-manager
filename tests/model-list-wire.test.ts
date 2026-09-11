@@ -3,6 +3,7 @@ import { createServer } from "node:http";
 import { once } from "node:events";
 import test from "node:test";
 import { fetchModelIds, type FetchModelIdsParams } from "../tui/model-list-fetch.ts";
+import { closeLocalProxyServer } from "../local-proxy-service.ts";
 import type { ApiKind } from "../types.ts";
 
 const realRuntime = process.env.PI_MODEL_MANAGER_REAL_RUNTIME === "1";
@@ -41,11 +42,17 @@ test("真实 Pi：四协议发现保留端点和显式头，失败不猜地址�
 	const params: FetchModelIdsParams = {
 		providerId: "discovery-fixture", api, baseUrl: "http://gateway.invalid/tenant/xxx", apiKey: "fake-gateway-key", authHeader: true,
 		clientHeaderProfile: "custom", customClientHeaders: { "Anthropic-Version": "2023-06-01", "ANTHROPIC-BETA": "custom-beta", "User-Agent": "list-fixture" },
+		httpProxyEnabled: false, httpProxyUrl: localUrl,
 	};
 	try {
 		for (api of ["openai-completions", "openai-responses", "anthropic-messages", "google-generative-ai"] as ApiKind[]) {
-			const outcome = await fetchModelIds({ ...params, api });
-			assert.deepEqual(outcome, { status: "loaded", modelIds: ["test-model"] }, api);
+			const results: unknown[] = [];
+			for (const enabled of [false, true]) {
+				const outcome = await fetchModelIds({ ...params, api, httpProxyEnabled: enabled });
+				assert.deepEqual(outcome, { status: "loaded", modelIds: ["test-model"] }, `${api}, proxy=${enabled}`);
+				results.push(captured.at(-1));
+			}
+			assert.deepEqual(results[1], results[0]);
 			const request = captured.at(-1)!;
 			assert.equal(request.url, "http://gateway.invalid/tenant/xxx/models");
 			assert.equal(request.headers["user-agent"], "list-fixture");
@@ -75,12 +82,13 @@ test("真实 Pi：四协议发现保留端点和显式头，失败不猜地址�
 		const received = Promise.withResolvers<void>();
 		onRequest = received.resolve;
 		const controller = new AbortController();
-		const pending = fetchModelIds(params, controller.signal);
+		const pending = fetchModelIds({ ...params, httpProxyEnabled: true }, controller.signal);
 		await received.promise;
 		controller.abort();
 		assert.deepEqual(await pending, { status: "cancelled" });
 	} finally {
 		globalThis.fetch = originalFetch;
+		await closeLocalProxyServer();
 		server.closeAllConnections();
 		await new Promise<void>((resolve) => server.close(() => resolve()));
 	}

@@ -25,6 +25,7 @@
     "models-json-sync.ts",
     "provider-registrar.ts",
     "provider-transport.ts",
+    "local-proxy-service.ts",
     "request-pipeline.ts",
     "model-mutations.ts",
     "model-metadata.ts",
@@ -76,6 +77,8 @@
     "@earendil-works/pi-tui": ">=0.75.0"
   },
   "dependencies": {
+    "http-proxy-agent": "^9.1.0",
+    "https-proxy-agent": "^9.1.0",
     "minimatch": "^10.2.6",
     "proper-lockfile": "^4.1.2",
     "yaml": "^2.8.1"

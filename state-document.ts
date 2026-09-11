@@ -32,7 +32,7 @@ import type {
 	StoredProvider,
 	StoredRequestHeaderProfile,
 } from "./types.ts";
-import { ZERO_COST } from "./types.ts";
+import { DEFAULT_PROVIDER_HTTP_PROXY_URL, ZERO_COST } from "./types.ts";
 
 // ========== 小工具 ==========
 
@@ -88,6 +88,8 @@ export function createProviderDraft(api: ApiKind = "openai-responses"): Provider
 		authHeader: preset.authHeader,
 		clientHeaderProfile: "recommended",
 		customClientHeaders: {},
+		httpProxyEnabled: false,
+		httpProxyUrl: DEFAULT_PROVIDER_HTTP_PROXY_URL,
 		openAIResponsesStreamCompletionMode: "standard",
 		selectedIndex: 0,
 	};
@@ -107,6 +109,8 @@ export function createProviderDraftFromStored(providerId: string, stored: Stored
 		clientHeaderProfile: stored.clientHeaderProfile ?? "recommended",
 		requestHeaderProfileId: stored.requestHeaderProfileId,
 		customClientHeaders: cloneStringRecord(stored.customClientHeaders),
+		httpProxyEnabled: stored.httpProxyEnabled ?? false,
+		httpProxyUrl: stored.httpProxyUrl?.trim() || DEFAULT_PROVIDER_HTTP_PROXY_URL,
 		openAIResponsesStreamCompletionMode: stored.openAIResponsesStreamCompletionMode ?? "standard",
 		selectedIndex: 0,
 	};
@@ -124,6 +128,8 @@ function createModelDraftFromProvider(providerDraft: ProviderDraft): ModelDraft 
 		clientHeaderProfile: providerDraft.clientHeaderProfile,
 		requestHeaderProfileId: providerDraft.requestHeaderProfileId,
 		customClientHeaders: cloneStringRecord(providerDraft.customClientHeaders),
+		httpProxyEnabled: providerDraft.httpProxyEnabled,
+		httpProxyUrl: providerDraft.httpProxyUrl,
 		modelId: "",
 		modelName: "",
 		// 新建模型默认开启视觉输入；不支持图片的模型可在编辑器里关闭。
@@ -168,6 +174,8 @@ export function createModelDraftFromStoredModel(
 		clientHeaderProfile: stored.clientHeaderProfile ?? "recommended",
 		requestHeaderProfileId: stored.requestHeaderProfileId,
 		customClientHeaders: cloneStringRecord(stored.customClientHeaders),
+		httpProxyEnabled: stored.httpProxyEnabled ?? false,
+		httpProxyUrl: stored.httpProxyUrl?.trim() || DEFAULT_PROVIDER_HTTP_PROXY_URL,
 		modelId: model.id,
 		modelName: model.name ?? "",
 		inputKinds: [...(model.input ?? preset.inputKinds)],
@@ -192,6 +200,16 @@ function validateUrl(url: string, label: string, errors: string[]): void {
 		validateRequestBaseUrl(url);
 	} catch (error) {
 		errors.push(error instanceof TypeError ? t("{label} 不是有效 URL", { label }) : (error as Error).message);
+	}
+}
+
+function validateHttpProxyUrl(url: string, errors: string[]): void {
+	try {
+		const parsed = new URL(url);
+		if (parsed.protocol !== "http:" && parsed.protocol !== "https:") errors.push(t("代理地址目前只支持 http:// 或 https:// 代理"));
+		if (!parsed.hostname) errors.push(t("代理地址必须包含主机名"));
+	} catch {
+		errors.push(t("代理地址不是有效 URL"));
 	}
 }
 
@@ -223,6 +241,11 @@ export function validateProviderDraft(
 		const profileId = draft.requestHeaderProfileId?.trim();
 		if (!profileId && !hasStringRecordEntries(draft.customClientHeaders)) errors.push(t("请选择一个自定义请求头"));
 		else if (profileId && !document.requestHeaderProfiles[profileId]) errors.push(t("自定义请求头不存在：{profileId}", { profileId }));
+	}
+
+	if (draft.httpProxyEnabled) {
+		const proxyUrl = draft.httpProxyUrl.trim() || DEFAULT_PROVIDER_HTTP_PROXY_URL;
+		validateHttpProxyUrl(proxyUrl, errors);
 	}
 
 	return errors;
@@ -279,6 +302,10 @@ export function getProviderChangeWarnings(
 	if ((current.clientHeaderProfile ?? "recommended") !== draft.clientHeaderProfile
 		|| (current.requestHeaderProfileId ?? "") !== (draft.requestHeaderProfileId ?? ""))
 		changes.push(t("请求头"));
+	if ((current.httpProxyEnabled ?? false) !== draft.httpProxyEnabled
+		|| (current.httpProxyUrl?.trim() || DEFAULT_PROVIDER_HTTP_PROXY_URL) !== (draft.httpProxyUrl.trim() || DEFAULT_PROVIDER_HTTP_PROXY_URL)) {
+		changes.push(t("本机代理"));
+	}
 	if (changes.length === 0) return [];
 	return [t("将修改接入级配置：{changes}，会影响该接入下 {count} 个模型。", { changes: joinLocalizedList(changes), count: affected })];
 }
@@ -342,6 +369,11 @@ function buildProviderFromDraft(
 	const apiKey = draft.apiKey.trim();
 	if (apiKey) next.apiKey = apiKey;
 	else delete next.apiKey;
+	const httpProxyUrl = draft.httpProxyUrl.trim() || DEFAULT_PROVIDER_HTTP_PROXY_URL;
+	if (draft.httpProxyEnabled) next.httpProxyEnabled = true;
+	else delete next.httpProxyEnabled;
+	if (draft.httpProxyEnabled || httpProxyUrl !== DEFAULT_PROVIDER_HTTP_PROXY_URL) next.httpProxyUrl = httpProxyUrl;
+	else delete next.httpProxyUrl;
 	if (draft.api === "openai-responses" && draft.openAIResponsesStreamCompletionMode === "terminal-event") {
 		next.openAIResponsesStreamCompletionMode = "terminal-event";
 	} else {

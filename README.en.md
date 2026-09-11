@@ -253,7 +253,7 @@ Explicit native headers override built-in templates; selecting a custom profile 
 | Path | Purpose |
 | --- | --- |
 | `~/.pi/agent/models.json` | Native Pi provider and model definitions; the single source of truth for model configuration |
-| `~/.pi/agent/extensions/pi-model-manager/state.json` | Extension metadata such as header choices, custom profiles, Fast mode, and Anthropic custom endpoint markers |
+| `~/.pi/agent/extensions/pi-model-manager/state.json` | Private metadata such as header choices, custom profiles, proxy switches, Fast mode, and Anthropic custom endpoint markers |
 
 The extension generates client headers and dynamic registrations only for explicitly managed providers. Ownership requires both a managed ID in `state.json` and a `piModelManager.managed` marker on the Provider node in `models.json`; this prevents a deleted Provider ID from silently taking ownership of an unrelated native Provider that later reuses the same ID. Native providers without this ownership evidence remain unmanaged: saving unrelated settings does not rewrite their existing headers or unknown native fields. Built-in Pi providers cannot be edited or deleted through this extension.
 
