@@ -83,6 +83,8 @@ const ENGLISH_MESSAGES = {
 	"开": "On",
 	"关": "Off",
 	"API 协议": "API protocol",
+	"选择 API 协议": "Select API protocol",
+	"继承供应商（{api}）": "Inherit provider ({api})",
 	"接入 ID（必填）": "Provider ID (required)",
 	"名称": "Name",
 	"本机代理": "Local proxy",

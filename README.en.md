@@ -128,6 +128,7 @@ Ctrl+S 保存并启用模型；不切换当前会话模型
 - Create, edit, and delete providers and models from the `/model-manager` TUI.
 - Start in Simplified Chinese and press `L` on the dashboard to switch to English; the language preference is saved.
 - Supports `openai-completions`, `openai-responses`, `anthropic-messages`, and `google-generative-ai`.
+- Override the API protocol per model (Responses / Chat / Claude / Gemini); models inherit the provider protocol by default.
 - Choose Pi's standard default behavior or a `system`-role compatibility mode for OpenAI Chat providers.
 - Fetch model IDs from compatible upstream APIs or enter them manually.
 - Configure context window, maximum output, vision support, and reasoning support.
@@ -209,6 +210,7 @@ Standard Anthropic endpoints are converted to Pi's native SDK representation in 
 
 Model capabilities include:
 
+- API protocol: per-model override (Responses / Chat / Claude / Gemini), inheriting the provider protocol by default
 - Display name
 - Vision support (text only, or text + image input)
 - Reasoning support

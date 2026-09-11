@@ -140,6 +140,10 @@ export interface ModelDraft {
 	modelId: string;
 	modelName: string;
 	inputKinds: ModelInputKind[];
+	/** 供应商级协议；模型未覆盖时以此为准。 */
+	providerApi: ApiKind;
+	/** 模型级协议覆盖；undefined 表示继承供应商。 */
+	apiOverride?: ApiKind;
 	metadataSource: ModelMetadataSource;
 	reasoningMode: ReasoningMode;
 	thinkingLevelMap?: ThinkingLevelMap;

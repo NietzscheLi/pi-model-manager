@@ -122,6 +122,8 @@ function createModelDraftFromProvider(providerDraft: ProviderDraft): ModelDraft 
 		providerId: providerDraft.providerId,
 		providerName: providerDraft.providerName,
 		api: providerDraft.api,
+		providerApi: providerDraft.api,
+		apiOverride: undefined,
 		baseUrl: providerDraft.baseUrl,
 		apiKey: providerDraft.apiKey,
 		authHeader: providerDraft.authHeader,
@@ -166,6 +168,8 @@ export function createModelDraftFromStoredModel(
 		providerId,
 		providerName: stored.name ?? (providerId.replace(/^custom-/, "") || preset.defaultProviderName),
 		api: effectiveApi,
+		providerApi,
+		apiOverride: isApiKind(model.api) ? model.api : undefined,
 		baseUrl: stored.managed
 			? model.baseUrl ?? stored.baseUrl
 			: fromNativeBaseUrl(effectiveApi, model.baseUrl ?? stored.baseUrl),
@@ -407,7 +411,7 @@ export function buildModelFromDraft(
 	const modelId = draft.modelId.trim();
 	const reasoning = draft.reasoningMode === "enabled";
 	const compat: CompatSettings = cloneJson(existing?.compat) ?? {};
-	const effectiveApi = isApiKind(existing?.api) ? existing.api : draft.api;
+	const effectiveApi = draft.api;
 	const storedThinkingLevelMap = cloneJson(existing?.thinkingLevelMap);
 	const thinkingLevelMap = normalizeThinkingLevelMap(effectiveApi, reasoning, storedThinkingLevelMap);
 
@@ -419,7 +423,8 @@ export function buildModelFromDraft(
 		maxTokens: draft.maxTokens,
 		cost: cloneJson(existing?.cost) ?? { ...ZERO_COST },
 	};
-	if (existing?.api) next.api = existing.api;
+	if (draft.apiOverride) next.api = draft.apiOverride;
+	else delete next.api;
 	if (existing?.baseUrl) next.baseUrl = existing.baseUrl;
 	if (hasStringRecordEntries(existing?.headers)) next.headers = cloneStringRecord(existing?.headers);
 

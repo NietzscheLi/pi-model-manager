@@ -8,13 +8,14 @@
 
 import { BorderedLoader, type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { t } from "../i18n.ts";
-import type { AnthropicThinkingProtocol, BuiltInClientHeaderProfileId, ModelDraft, ModelListFetchOutcome, ReasoningMode, StoredClientHeaderCapture, StoredRequestHeaderProfile } from "../types.ts";
+import type { AnthropicThinkingProtocol, ApiKind, BuiltInClientHeaderProfileId, ModelDraft, ModelListFetchOutcome, ReasoningMode, StoredClientHeaderCapture, StoredRequestHeaderProfile } from "../types.ts";
 import { fetchModelIds } from "./model-list-fetch.ts";
 import { pickModelIdFromList } from "./model-picker.ts";
 import { showOptionPicker, showPersistentFormMenu, padLabel, type MenuCursor } from "./persistent-menu.ts";
 import {
 	describeVisionInput,
 	formatApiShort,
+	getApiChoices,
 	getVisionInputChoices,
 	supportsVisionInput,
 } from "./ui-helpers.ts";
@@ -39,6 +40,23 @@ function shouldShowAnthropicThinkingProtocol(draft: ModelDraft): boolean {
 
 function describeReasoningMode(mode: ReasoningMode): string {
 	return mode === "enabled" ? t("开启") : t("关闭");
+}
+
+function describeModelApi(draft: ModelDraft): string {
+	return draft.apiOverride
+		? formatApiShort(draft.api)
+		: t("继承供应商（{api}）", { api: formatApiShort(draft.providerApi) });
+}
+
+// 模型级协议只改变该模型的 wire 格式；派生字段按新协议收敛，避免保存后残留不适用字段。
+function applyModelApiChange(draft: ModelDraft, override: ApiKind | undefined): void {
+	const nextApi = override ?? draft.providerApi;
+	draft.apiOverride = override;
+	if (draft.api === nextApi) return;
+	draft.api = nextApi;
+	if (nextApi === "anthropic-messages") draft.anthropicThinkingProtocol ??= "adaptive";
+	else draft.anthropicThinkingProtocol = undefined;
+	if (nextApi !== "openai-responses") draft.openAIServiceTier = undefined;
 }
 
 function describeAnthropicThinkingProtocol(protocol: AnthropicThinkingProtocol): string {
@@ -80,6 +98,7 @@ function buildRows(draft: ModelDraft): FieldRow[] {
 		{ id: "modelId", label: t("模型 ID"), value: draft.modelId || t("<未填写>") },
 		{ id: "fetch", label: t("重新拉取"), value: t("上游模型列表") },
 		{ id: "modelName", label: t("显示名称"), value: draft.modelName || t("默认 = 模型 ID") },
+		{ id: "apiOverride", label: t("API 协议"), value: describeModelApi(draft) },
 		{ id: "metadataSource", label: t("元数据源"), value: draft.metadataSource === "manual" ? t("关闭（保留手工值）") : draft.metadataSource },
 		{ id: "visionInput", label: t("视觉支持"), value: describeVisionInput(draft.inputKinds), adjustable: true },
 		{ id: "reasoning", label: "Thinking", value: describeReasoningMode(draft.reasoningMode), adjustable: true },
@@ -205,6 +224,15 @@ async function editField(
 	if (fieldId === "modelName") {
 		const value = await ctx.ui.input(t("显示名称（当前：{current}，可空默认用模型 ID；输入空格清空）", { current: draft.modelName || t("<空>") }), draft.modelName);
 		if (value !== undefined) draft.modelName = value.trim();
+		return;
+	}
+	if (fieldId === "apiOverride") {
+		const choice = await showOptionPicker(ctx, t("选择 API 协议"), [
+			{ id: "inherit", label: t("继承供应商（{api}）", { api: formatApiShort(draft.providerApi) }) },
+			...getApiChoices(),
+		], draft.apiOverride ?? "inherit");
+		if (!choice) return;
+		applyModelApiChange(draft, choice.id === "inherit" ? undefined : choice.id as ApiKind);
 		return;
 	}
 	if (fieldId === "metadataSource") {

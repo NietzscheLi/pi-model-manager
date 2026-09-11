@@ -128,6 +128,7 @@ Ctrl+S 保存并启用模型；不切换当前会话模型
 - 在 `/model-manager` TUI 中新增、编辑和删除接入与模型。
 - 界面默认使用简体中文；可在主面板按 `L` 切换为 English，语言选择会持久保存。
 - 原生支持 `openai-completions`、`openai-responses`、`anthropic-messages` 和 `google-generative-ai`。
+- 可在模型级覆盖 API 协议（Responses / Chat / Claude / Gemini），未覆盖时继承接入协议。
 - 为 OpenAI Chat 接入提供标准 Pi 默认行为与 `system` role 兼容模式。
 - 从兼容上游拉取模型 ID，也可手动填写模型。
 - 配置上下文窗口、最大输出、视觉支持和 Thinking。
@@ -247,6 +248,7 @@ Anthropic 标准端点在写入 `models.json` 时转换为 Pi 原生 SDK 所需�
 
 模型编辑器支持：
 
+- API 协议：按模型覆盖 Responses / Chat / Claude / Gemini，默认继承接入协议
 - 显示名称
 - 视觉支持（仅文本或文本 + 图片输入）
 - Thinking 开关
