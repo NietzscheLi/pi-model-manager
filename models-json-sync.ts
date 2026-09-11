@@ -39,7 +39,6 @@ import type {
 	StoredProvider,
 	StoredRequestHeaderProfile,
 } from "./types.ts";
-import { resolveDefaultApiKeyValue } from "./types.ts";
 
 const THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 
@@ -118,9 +117,7 @@ function buildModelsJsonProviderEntry(
 	else delete next.name;
 	next.baseUrl = provider.managed ? toNativeBaseUrl(provider.api, provider.baseUrl).baseUrl : provider.baseUrl;
 	next.api = provider.api;
-	// [喵喵喵]: models.json 只承载默认 key；其余命名 key 留在 state.json 私有元数据。
-	const defaultApiKey = resolveDefaultApiKeyValue(provider);
-	if (defaultApiKey) next.apiKey = defaultApiKey;
+	if (provider.apiKey) next.apiKey = provider.apiKey;
 	else delete next.apiKey;
 	if (provider.authHeader !== undefined) next.authHeader = provider.authHeader;
 	else delete next.authHeader;

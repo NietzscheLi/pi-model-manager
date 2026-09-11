@@ -3,7 +3,6 @@ import test from "node:test";
 import { findPresetForApi, switchProviderDraftApiPreset } from "../presets/providers.ts";
 import { appendUrlPath, resolveRuntimeBaseUrl, toNativeBaseUrl, validateRequestBaseUrl } from "../runtime-base-url.ts";
 import type { ProviderDraft } from "../types.ts";
-import { DEFAULT_API_KEY_ID } from "../types.ts";
 
 function createDraft(): ProviderDraft {
 	const preset = findPresetForApi("openai-responses");
@@ -12,11 +11,11 @@ function createDraft(): ProviderDraft {
 		providerName: "custom",
 		api: preset.api,
 		baseUrl: preset.baseUrl,
+		apiKey: preset.apiKey,
 		authHeader: preset.authHeader,
 		clientHeaderProfile: "recommended",
 		customClientHeaders: {},
-		apiKeys: [{ id: DEFAULT_API_KEY_ID, value: preset.apiKey }],
-		defaultApiKeyId: DEFAULT_API_KEY_ID,
+		apiKeys: [],
 		httpProxyEnabled: false,
 		httpProxyUrl: "http://127.0.0.1:7890",
 
@@ -29,17 +28,17 @@ test("协议切换仅替换旧协议默认预设", () => {
 	switchProviderDraftApiPreset(draft, "anthropic-messages");
 	assert.equal(draft.api, "anthropic-messages");
 	assert.equal(draft.baseUrl, "https://api.anthropic.com/v1");
-	assert.deepEqual(draft.apiKeys, [{ id: DEFAULT_API_KEY_ID, value: "$ANTHROPIC_API_KEY" }]);
+	assert.equal(draft.apiKey, "$ANTHROPIC_API_KEY");
 });
 
 test("协议切换保留明文 key、自定义引用、命令和自定义 URL", () => {
 	for (const apiKey of ["sk-plaintext", "$MY_PRIVATE_KEY", "!secret-tool read provider"]) {
 		const draft = createDraft();
 		draft.baseUrl = "https://gateway.example.com/tenant-a/openai/v1?region=cn";
-		draft.apiKeys = [{ id: DEFAULT_API_KEY_ID, value: apiKey }];
+		draft.apiKey = apiKey;
 		switchProviderDraftApiPreset(draft, "google-generative-ai");
 		assert.equal(draft.baseUrl, "https://gateway.example.com/tenant-a/openai/v1?region=cn");
-		assert.equal(draft.apiKeys[0]!.value, apiKey);
+		assert.equal(draft.apiKey, apiKey);
 	}
 });
 

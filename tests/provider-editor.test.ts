@@ -16,6 +16,7 @@ function createChatDraft(): ProviderDraft {
 		api: "openai-completions",
 		openAIChatCompatibilityMode: "standard",
 		baseUrl: "https://gateway.example.test/v1",
+		apiKey: "",
 		authHeader: false,
 		clientHeaderProfile: "recommended",
 		customClientHeaders: {},

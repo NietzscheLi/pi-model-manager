@@ -27,7 +27,6 @@ import type {
 	ThinkingLevelMap,
 	TokenCost,
 } from "./types.ts";
-import { DEFAULT_API_KEY_ID, resolveDefaultApiKeyId } from "./types.ts";
 
 export const STATE_DIR = join(getAgentDir(), "extensions", "pi-model-manager");
 export const STATE_PATH = join(STATE_DIR, "state.json");
@@ -46,7 +45,6 @@ interface ProviderMetadata {
 	requestHeaderProfileId?: string;
 	customClientHeaders?: Record<string, string>;
 	apiKeys?: StoredApiKey[];
-	defaultApiKeyId?: string;
 	httpProxyEnabled?: boolean;
 	httpProxyUrl?: string;
 	openAIResponsesStreamCompletionMode?: OpenAIResponsesStreamCompletionMode;
@@ -277,8 +275,6 @@ function readProviderMetadata(raw: unknown, path: string): ProviderMetadata {
 	if (customClientHeaders) metadata.customClientHeaders = customClientHeaders;
 	const apiKeys = readOptionalApiKeys(raw, "apiKeys", path);
 	if (apiKeys) metadata.apiKeys = apiKeys;
-	const defaultApiKeyId = readOptionalString(raw, "defaultApiKeyId", path);
-	if (defaultApiKeyId !== undefined) metadata.defaultApiKeyId = defaultApiKeyId;
 	const httpProxyEnabled = readOptionalBoolean(raw, "httpProxyEnabled", path);
 	if (httpProxyEnabled !== undefined) metadata.httpProxyEnabled = httpProxyEnabled;
 	const httpProxyUrl = readOptionalString(raw, "httpProxyUrl", path);
@@ -344,10 +340,7 @@ function readStoredProvider(raw: unknown, path: string, managed: boolean): Store
 		models: storedModels,
 	};
 	const apiKey = readOptionalString(raw, "apiKey", path);
-	if (apiKey) {
-		provider.apiKeys = [{ id: DEFAULT_API_KEY_ID, value: apiKey }];
-		provider.defaultApiKeyId = DEFAULT_API_KEY_ID;
-	}
+	if (apiKey) provider.apiKey = apiKey;
 
 	const authHeader = readOptionalBoolean(raw, "authHeader", path);
 	if (authHeader !== undefined) provider.authHeader = authHeader;
@@ -437,11 +430,7 @@ function extractProviderMetadata(provider: StoredProvider): ProviderMetadata {
 	if (provider.openAIResponsesStreamCompletionMode === "terminal-event") {
 		metadata.openAIResponsesStreamCompletionMode = "terminal-event";
 	}
-	if (provider.apiKeys && provider.apiKeys.length > 0) {
-		metadata.apiKeys = cloneJson(provider.apiKeys);
-		const defaultApiKeyId = resolveDefaultApiKeyId(provider);
-		if (defaultApiKeyId) metadata.defaultApiKeyId = defaultApiKeyId;
-	}
+	if (provider.apiKeys && provider.apiKeys.length > 0) metadata.apiKeys = cloneJson(provider.apiKeys);
 	return metadata;
 }
 

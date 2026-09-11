@@ -11,7 +11,6 @@ import { getClientHeadersForProfile, mergeModelRequestHeaders } from "./presets/
 import { createProviderTransport } from "./provider-transport.ts";
 import { resolveRuntimeBaseUrl } from "./runtime-base-url.ts";
 import type { ApiKind, BuiltInClientHeaderProfileId, StateDocument, StoredClientHeaderCapture, StoredModel, StoredProvider, StoredRequestHeaderProfile } from "./types.ts";
-import { resolveDefaultApiKeyValue } from "./types.ts";
 
 type ProviderModelConfig = NonNullable<ProviderConfig["models"]>[number];
 const REGISTERED_PROVIDER_CONFIGS = new Map<string, Provider>();
@@ -27,7 +26,7 @@ function buildProviderConfig(
 	requestHeaderProfiles: Record<string, StoredRequestHeaderProfile> = {},
 	clientHeaderCaptures: Partial<Record<BuiltInClientHeaderProfileId, StoredClientHeaderCapture>> = {},
 ): ProviderConfig {
-	const apiKey = resolveDefaultApiKeyValue(provider)?.trim();
+	const apiKey = provider.apiKey?.trim();
 	return {
 		name: provider.name,
 		baseUrl: resolveRuntimeBaseUrl(provider.api, provider.baseUrl),

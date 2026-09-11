@@ -136,7 +136,7 @@ Ctrl+S 保存并启用模型；不切换当前会话模型
 - Enable `service_tier=priority` (Fast mode) per OpenAI Responses model.
 - Use recommended, disabled, Claude Code, Codex, or custom client-header profiles.
 - Reference API keys as literals, `$ENV_VAR` / `${ENV_VAR}`, or Pi `!command` values.
-- Configure multiple named API keys per provider (list kept in private `state.json` metadata) and let each model pick one; one key is the default and is written to `models.json`.
+- Configure multiple named API keys per provider (kept only in private `state.json` metadata) and let each model pick one; the default key still lives in `models.json`.
 - Persist configuration with a cross-process lock and recoverable two-file transactions, then re-register managed providers after saving.
 
 ## Installation
@@ -211,13 +211,11 @@ Standard Anthropic endpoints are converted to Pi's native SDK representation in 
 
 ### Multiple API keys
 
-All provider keys are managed through the **API keys** row, and one of them is the default key (written to `models.json`):
+The **API key** row configures the provider's default key (written to `models.json`). The provider editor also has an **API keys** row for named keys:
 
-- Each key has an ID, an optional display name, and a value; values support literals, `$ENV_VAR` / `${ENV_VAR}`, and Pi `!command` references.
-- The **API keys** manager adds, re-values, renames, sets the default, and deletes keys; the ★ row is the default. The default key is written to `models.json` `apiKey`, so Pi can still authenticate without the extension.
-- The named-key list itself is private plugin metadata kept only in `state.json`; deleting the default key falls back to the first remaining key.
-- A model's **API key** row selects a named key; when unset the model falls back to the default key (no explicit override, so Pi uses the provider default authentication).
-- Fetching the model list asks which key to use, preselecting the model's chosen key (otherwise the default); cancelling abandons the fetch. With zero keys no prompt is shown and discovery uses Pi authentication.
+- Each named key has an ID, an optional display name, and a value; values support literals, `$ENV_VAR` / `${ENV_VAR}`, and Pi `!command` references.
+- Named keys are private plugin metadata kept only in `state.json`; they are never written to `models.json`.
+- A model's **API key** row selects either **Inherit default** or a named key; the selected key overrides the default for that model's requests.
 - Deleting a named key that models still reference clears those references when the provider is saved.
 
 Model capabilities include:

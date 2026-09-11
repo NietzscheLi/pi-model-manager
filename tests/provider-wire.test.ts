@@ -52,7 +52,7 @@ function splitResponsesSse(api: ApiKind): string[] {
 function provider(api: ApiKind, baseUrl: string): StoredProvider {
 	const ids = { "openai-completions": "deepseek-reasoner", "openai-responses": "gpt-5.2", "anthropic-messages": "claude-sonnet-4-6", "google-generative-ai": "gemini-2.5-flash" };
 	return {
-		name: "Wire fixture", api, baseUrl, apiKeys: [{ id: "default", value: "fake-gateway-key" }], defaultApiKeyId: "default", managed: true,
+		name: "Wire fixture", api, baseUrl, apiKey: "fake-gateway-key", managed: true,
 		clientHeaderProfile: "custom", customClientHeaders: { "User-Agent": "wire-fixture", "X-Test-Client": "user-value", "Anthropic-Beta": "user-beta,interleaved-thinking-2025-05-14" },
 		models: [{ id: ids[api], reasoning: true, input: ["text"], contextWindow: 128000, maxTokens: 12000, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, ...(api === "anthropic-messages" ? { compat: { forceAdaptiveThinking: true } } : {}) }],
 	};

@@ -136,7 +136,7 @@ Ctrl+S 保存并启用模型；不切换当前会话模型
 - 可为 OpenAI Responses 模型启用 `service_tier=priority`（Fast mode）。
 - 提供自动推荐、禁用、Claude Code、Codex 和自定义请求头模式。
 - API key 支持字面值、`$ENV_VAR` / `${ENV_VAR}` 和 Pi 的 `!command` 引用。
-- 同一接入可配置多个命名 API key（列表存于 `state.json` 私有元数据），模型可按需选择；其中一个默认 key 写入 `models.json`。
+- 同一接入可配置多个命名 API key（仅存于 `state.json` 私有元数据），模型可按需选择；默认 key 仍写入 `models.json`。
 - 使用跨进程锁与可恢复双文件事务持久化配置，并在保存后重新注册受管理的 Provider。
 - 模型保存时可选择 `models.dev`（默认）或 OpenRouter 同步上下文、最大输出、Thinking 等级与费用。
 
@@ -224,7 +224,7 @@ pi remove ../../path/to/pi-model-manager
 每个接入可以配置：
 
 - API 协议与 Base URL
-- API keys（命名 key 列表，其中一个为默认）与认证头行为
+- API key 与认证头行为
 - 请求头身份
 - 一个或多个模型
 
@@ -236,13 +236,11 @@ Anthropic 标准端点在写入 `models.json` 时转换为 Pi 原生 SDK 所需�
 
 ### 多个 API key
 
-接入的所有 key 统一由 **API keys** 行管理，其中一个是默认 key（写入 `models.json`）：
+接入的 **API key** 行配置默认 key（写入 `models.json`）。接入编辑器另有 **API keys** 行用于维护该接入的命名 key：
 
-- 每个 key 有 ID、可选显示名称和值；值支持明文、`$ENV_VAR` / `${ENV_VAR}` 和 Pi 的 `!command`。
-- 在 **API keys** 管理页可新增、改值、改名、设为默认和删除；列表中标 ★ 的行为默认 key。默认 key 会写入 `models.json` 的 `apiKey`，因此未加载扩展时 Pi 仍能认证。
-- 命名 key 列表本身是插件私有元数据，只保存在 `state.json`；删除默认 key 时自动回退到剩余首个 key。
-- 模型编辑器的 **API key** 行可选择某个命名 key；未选择时回退到默认 key（不显式覆盖，交由 Pi 使用接入默认认证）。
-- 拉取模型列表前会弹出 key 选择，默认选中当前模型已选的 key（否则默认 key）；取消选择则放弃本次拉取。零个 key 时不询问，直接用 Pi 认证发起发现。
+- 每个命名 key 有 ID、可选显示名称和值；值支持明文、`$ENV_VAR` / `${ENV_VAR}` 和 Pi 的 `!command`。
+- 命名 key 是插件私有元数据，只保存在 `state.json`，不会写入 `models.json`。
+- 模型编辑器的 **API key** 行可选择「继承默认」或某个命名 key；被选中的 key 在该模型的请求中覆盖默认 key。
 - 删除仍被模型引用的命名 key 时，保存接入会同时清除这些模型的引用。
 
 ### Chat 协议兼容
