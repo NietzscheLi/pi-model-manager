@@ -6,7 +6,7 @@
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](./LICENSE)
 [![Version](https://img.shields.io/badge/version-0.3.6-2f81f7.svg)](https://github.com/NietzscheLi/pi-model-manager)
 
-一个面向 [Pi](https://github.com/earendil-works/pi) 的 TUI 模型与接入管理扩展。它以 Pi 原生 `models.json` 为模型配置的唯一权威来源，并提供接入/模型编辑、请求头身份和协议兼容配置。
+一个面向 [Pi](https://github.com/earendil-works/pi) 的 TUI 模型与接入管理扩展。它以 Pi 原生 `models.json` 为模型配置的唯一权威来源，并提供接入/模型编辑、请求头身份、代理路由和协议兼容配置。
 
 > 当前稳定版为 `0.3.6`，要求 Pi `>=0.85.1`。
 >
@@ -21,15 +21,16 @@
 /model-manager
 4 接入 · 5 模型 · 0 内置抓包 · 0 自定义请求头
 
-  接入                API          模型  请求头           认证    状态
-❯ OpenAI (openai)     Responses       2  Auto→Codex       env     ready
-  Claude (claude)     Claude          1  ClaudeCode       env     ready
-  Gemini (gemini)     Gemini          1  Auto→不添加      env     ready
-  Local vLLM (local)  Chat            1  Off              key     ready
+  接入                API          模型  请求头           代理    认证    状态
+❯ OpenAI (openai)     Responses       2  Auto→Codex       direct  env     ready
+  Claude (claude)     Claude          1  ClaudeCode       direct  env     ready
+  Gemini (gemini)     Gemini          1  Auto→不添加      direct  env     ready
+  Local vLLM (local)  Chat            1  Off              proxy   key     ready
 
 ────────────────────────────────────────────────────────────────────────────────────────
 OpenAI (openai)
   endpoint  https://api.openai.com/v1
+  proxy     direct
   api       Responses · headers Auto→Codex · auth env
   models    gpt-5.6-sol, gpt-5.6-terra
 
@@ -45,7 +46,7 @@ OpenAI (openai)
 ```text
 ────────────────────────────────────────────────────────────────────────────────────────
 /model-manager / OpenAI
-Responses · 2 模型 · headers Auto→Codex · auth env
+Responses · 2 模型 · headers Auto→Codex · proxy direct · auth env
 endpoint  https://api.openai.com/v1
 
   模型 ID         显示名    输入        Thinking   上下文
@@ -70,6 +71,8 @@ Ctrl+S 保存并同步 models.json；不切换当前会话模型
   显示名称        OpenAI
   API 协议        OpenAI Responses
 ❯ Base URL        https://api.openai.com/v1
+  本机代理        关闭
+  代理地址        关闭时不使用
   API key         $OPENAI_API_KEY
   认证头          默认
   请求头          自动推荐（Auto→Codex）
@@ -134,6 +137,7 @@ Ctrl+S 保存并启用模型；不切换当前会话模型
 - 配置上下文窗口、最大输出、视觉支持和 Thinking。
 - 支持 Anthropic Adaptive Thinking 与 Legacy Thinking。
 - 可为 OpenAI Responses 模型启用 `service_tier=priority`（Fast mode）。
+- 为每个接入单独配置直连或 HTTP(S) 代理。
 - 提供自动推荐、禁用、Claude Code、Codex 和自定义请求头模式。
 - API key 支持字面值、`$ENV_VAR` / `${ENV_VAR}` 和 Pi 的 `!command` 引用。
 - 使用跨进程锁与可恢复双文件事务持久化配置，并在保存后重新注册受管理的 Provider。
@@ -225,6 +229,7 @@ pi remove ../../path/to/pi-model-manager
 - API 协议与 Base URL
 - API key 与认证头行为
 - 请求头身份
+- 接入级 HTTP(S) 代理
 - 一个或多个模型
 
 新建模型时，扩展会尝试从上游读取模型列表；整次发现共用一个 10 秒上限，可按 `Esc` 手动取消。列表与聊天使用同一 API 根地址和配置的认证信息，错误会区分认证失败、接口不存在、限流和上游异常。失败或取消后仍可手动输入模型 ID。
@@ -287,7 +292,7 @@ Anthropic 标准端点在写入 `models.json` 时转换为 Pi 原生 SDK 所需�
 | `~/.pi/agent/extensions/pi-model-manager/state.json` | 请求头选择、自定义请求头、代理开关、Fast mode 和 Anthropic 自定义端点标记等扩展私有元数据 |
 | `UPSTREAM-DIFFERENCES.md` | 本项目与上游 Pi 的功能和配置边界差异 |
 
-扩展只会为明确受管理的 Provider 生成请求头和动态注册配置。所有权由 `state.json` 的受管理 ID 与 `models.json` Provider 节点中的 `piModelManager.managed` 标记共同确认，防止已删除的 Provider ID 在日后被同名原生配置复用时遭到插件接管。没有这些所有权信息的原生 Provider 保持未管理，其已有 Header 和未知原生字段不会因保存其它配置而被改写；Pi 内置 Provider 不在本扩展中提供编辑或删除入口。
+扩展只会为明确受管理的 Provider 生成请求头、代理路由和动态注册配置。所有权由 `state.json` 的受管理 ID 与 `models.json` Provider 节点中的 `piModelManager.managed` 标记共同确认，防止已删除的 Provider ID 在日后被同名原生配置复用时遭到插件接管。没有这些所有权信息的原生 Provider 保持未管理，其已有 Header 和未知原生字段不会因保存其它配置而被改写；Pi 内置 Provider 不在本扩展中提供编辑或删除入口。
 
 插件自身的配置写入由跨进程锁串行化，`enabledModels` 还同时遵守 Pi 的 `proper-lockfile` 锁；`models.json` 与 `state.json` 通过事务意图文件在中断后恢复，读取方不会采用事务进行中的半完成组合。外部编辑器不受这些锁约束，因此保存前仍会校验内容签名；检测到外部修改时会取消保存而不是覆盖。
 
@@ -308,6 +313,7 @@ ${ANTHROPIC_API_KEY}
 其他注意事项：
 
 - 自定义请求头不是保存认证凭据的位置。
+- 启用接入代理后，该接入的请求会经过你填写的代理地址。
 - 拉取模型列表会向所配置的上游地址发起网络请求。
 - 仓库忽略 `state.json`、运行日志、请求捕获数据和其他机器专属文件。
 
@@ -341,7 +347,7 @@ npm pack --dry-run
 
 ## 问题反馈
 
-请通过 [GitHub Issues](https://github.com/NietzscheLi/pi-model-manager/issues) 提交可复现的问题。报告配置问题时，请删除 API key、认证头和私有 endpoint。
+请通过 [GitHub Issues](https://github.com/NietzscheLi/pi-model-manager/issues) 提交可复现的问题。报告配置问题时，请删除 API key、认证头、代理凭据和私有 endpoint。
 
 ## 友情链接
 
