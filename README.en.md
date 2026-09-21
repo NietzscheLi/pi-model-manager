@@ -4,11 +4,11 @@ English · [简体中文](./README.md)
 
 [![Pi](https://img.shields.io/badge/Pi-%3E%3D0.85.1-6f42c1)](https://github.com/earendil-works/pi)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-0.3.5-2f81f7.svg)](https://github.com/NietzscheLi/pi-model-manager)
+[![Version](https://img.shields.io/badge/version-0.3.6-2f81f7.svg)](https://github.com/NietzscheLi/pi-model-manager)
 
 A TUI model and provider manager for [Pi](https://github.com/earendil-works/pi). It keeps Pi's native `models.json` as the single source of truth for model configuration while adding provider/model editing, client-header identities, and protocol compatibility controls.
 
-> The current stable version is `0.3.5` and requires Pi `>=0.85.1`.
+> The current stable version is `0.3.6` and requires Pi `>=0.85.1`.
 >
 > This project is a maintained fork of [Qihuanxishini/pi-model-manager](https://github.com/Qihuanxishini/pi-model-manager). It is distributed under the [AGPL-3.0 license](./LICENSE). When redistributing a modified version you must retain the copyright and license notices, provide the corresponding source, and clearly mark your changes.
 
@@ -241,8 +241,8 @@ Use **Standard · Pi default** first. Select **Compatible · system** only when 
 
 The current built-in values were derived from real client requests with authentication fields removed:
 
-- Claude Code `2.1.243`
-- Codex TUI `0.149.1`
+- Claude Code `2.1.278`
+- Codex TUI `0.155.1`
 
 These headers only help API gateways that require a recognized client identity; they do not replace an API key. The public repository and npm package contain **no request-capture tooling, user captures, authentication headers, or machine-local state**. Disable identity headers or create a custom profile if a built-in profile does not fit your endpoint.
 

@@ -4,11 +4,11 @@
 
 [![Pi](https://img.shields.io/badge/Pi-%3E%3D0.85.1-6f42c1)](https://github.com/earendil-works/pi)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-0.3.5-2f81f7.svg)](https://github.com/NietzscheLi/pi-model-manager)
+[![Version](https://img.shields.io/badge/version-0.3.6-2f81f7.svg)](https://github.com/NietzscheLi/pi-model-manager)
 
 一个面向 [Pi](https://github.com/earendil-works/pi) 的 TUI 模型与接入管理扩展。它以 Pi 原生 `models.json` 为模型配置的唯一权威来源，并提供接入/模型编辑、请求头身份和协议兼容配置。
 
-> 当前稳定版为 `0.3.5`，要求 Pi `>=0.85.1`。
+> 当前稳定版为 `0.3.6`，要求 Pi `>=0.85.1`。
 >
 > 本项目基于 [Qihuanxishini/pi-model-manager](https://github.com/Qihuanxishini/pi-model-manager) 的源码维护，是其衍生/修改版本。请遵守原项目及本项目的 [AGPL-3.0 许可](./LICENSE)，分发修改版时须保留版权与许可声明、公开对应源码，并明确标注改动。
 
@@ -270,8 +270,8 @@ Anthropic 标准端点在写入 `models.json` 时转换为 Pi 原生 SDK 所需�
 
 当前内置值来自真实客户端请求并已移除认证信息：
 
-- Claude Code `2.1.243`
-- Codex TUI `0.149.1`
+- Claude Code `2.1.278`
+- Codex TUI `0.155.1`
 
 这些值只用于兼容需要识别客户端身份的 API 中转，不代替 API key。公开仓库和 npm 包**不包含请求捕获工具、用户抓包、认证头或本机状态**。如果内置值不适合你的服务，请关闭身份头或创建自定义请求头。
 
