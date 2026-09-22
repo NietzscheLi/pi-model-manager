@@ -4,7 +4,7 @@ import { ModelRuntime, type ExtensionAPI, type ProviderConfig } from "@earendil-
 import type { Provider } from "@earendil-works/pi-ai";
 import { isBuiltinProviderId } from "./builtin-model-catalog.ts";
 import { mergeCompatSettings } from "./compat-settings.ts";
-import { formatUnknownError } from "./common.ts";
+import { cloneJson, formatUnknownError } from "./common.ts";
 import { t } from "./i18n.ts";
 import { removeProviderLocalProxyRoutes } from "./local-proxy-service.ts";
 import { getClientHeadersForProfile, mergeModelRequestHeaders } from "./presets/client-headers.ts";
@@ -97,7 +97,9 @@ function buildModelConfig(
 		reasoning: model.reasoning,
 		thinkingLevelMap: model.thinkingLevelMap,
 		input: model.input,
+		...(model.inputLimits ? { inputLimits: cloneJson(model.inputLimits) } : {}),
 		cost: model.cost,
+		...(model.promptCache ? { promptCache: cloneJson(model.promptCache) } : {}),
 		contextWindow: model.contextWindow,
 		maxTokens: model.maxTokens,
 		headers: buildModelRequestHeaders(provider, model, requestHeaderProfiles, clientHeaderCaptures),

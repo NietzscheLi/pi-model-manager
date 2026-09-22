@@ -8,8 +8,9 @@
 
 import { BorderedLoader, type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { t } from "../i18n.ts";
-import type { AnthropicThinkingProtocol, ApiKind, BuiltInClientHeaderProfileId, ModelDraft, ModelListFetchOutcome, ReasoningMode, StoredClientHeaderCapture, StoredRequestHeaderProfile } from "../types.ts";
+import type { AnthropicThinkingProtocol, ApiKind, BuiltInClientHeaderProfileId, ModelDraft, ModelInputLimits, ModelListFetchOutcome, ReasoningMode, StoredClientHeaderCapture, StoredRequestHeaderProfile } from "../types.ts";
 import { fetchModelIds } from "./model-list-fetch.ts";
+import { editJsonObjectField } from "./json-field.ts";
 import { pickModelIdFromList } from "./model-picker.ts";
 import { showOptionPicker, showPersistentFormMenu, padLabel, type MenuCursor } from "./persistent-menu.ts";
 import {
@@ -71,6 +72,10 @@ function getIntegerFieldLabel(field: "contextWindow" | "maxTokens"): string {
 	return field === "contextWindow" ? t("上下文窗口") : t("最大输出");
 }
 
+function describePromptCache(value: unknown): string {
+	return typeof value === "number" && value > 0 ? t("{count} 秒", { count: value }) : t("未设置");
+}
+
 
 // 开关字段在两个方向上都是取反，因此不看 direction；返回是否真的切换了字段。
 function applyHorizontalToggle(draft: ModelDraft, fieldId: string): boolean {
@@ -117,6 +122,10 @@ function buildRows(draft: ModelDraft): FieldRow[] {
 	rows.push(
 		{ id: "contextWindow", label: t("上下文窗口"), value: String(draft.contextWindow) },
 		{ id: "maxTokens", label: t("最大输出"), value: String(draft.maxTokens) },
+		{ id: "promptCacheShort", label: t("缓存预热·短"), value: describePromptCache(draft.promptCache?.short) },
+		{ id: "promptCacheLong", label: t("缓存预热·长"), value: describePromptCache(draft.promptCache?.long) },
+		{ id: "inputLimits", label: t("图片与请求限制"), value: draft.inputLimits ? t("已配置") : t("未设置") },
+		{ id: "compat", label: t("高级 compat"), value: draft.compat && Object.keys(draft.compat).length > 0 ? t("已配置") : t("未设置") },
 	);
 	return rows;
 }
@@ -198,6 +207,30 @@ async function editIntField(ctx: ExtensionCommandContext, draft: ModelDraft, fie
 		return;
 	}
 	draft[field] = parsed;
+}
+
+async function editPromptCacheField(ctx: ExtensionCommandContext, draft: ModelDraft, key: "short" | "long"): Promise<void> {
+	const label = key === "short" ? t("缓存预热·短") : t("缓存预热·长");
+	const current = draft.promptCache?.[key];
+	const value = await ctx.ui.input(
+		t("{label}（当前：{current}；留空清除）", { label, current: describePromptCache(current) }),
+		current ? String(current) : "",
+	);
+	if (value === undefined) return;
+	const trimmed = value.trim();
+	if (!trimmed) {
+		if (draft.promptCache) {
+			delete draft.promptCache[key];
+			if (Object.keys(draft.promptCache).length === 0) draft.promptCache = undefined;
+		}
+		return;
+	}
+	const parsed = Number.parseInt(trimmed, 10);
+	if (!Number.isFinite(parsed) || parsed <= 0) {
+		ctx.ui.notify(t("缓存存活时间必须是正整数：{key}", { key: label }), "warning");
+		return;
+	}
+	draft.promptCache = { ...draft.promptCache, [key]: parsed };
 }
 
 async function editField(
@@ -295,6 +328,30 @@ async function editField(
 	}
 	if (fieldId === "contextWindow" || fieldId === "maxTokens") {
 		await editIntField(ctx, draft, fieldId);
+		return;
+	}
+	if (fieldId === "promptCacheShort" || fieldId === "promptCacheLong") {
+		await editPromptCacheField(ctx, draft, fieldId === "promptCacheShort" ? "short" : "long");
+		return;
+	}
+	if (fieldId === "inputLimits") {
+		const outcome = await editJsonObjectField(
+			ctx,
+			t("图片与请求限制"),
+			draft.inputLimits,
+			t("inputLimits 常用键：images.resize（maxWidth/maxHeight/maxBytes/jpegQuality）、maxRequestBytes、images.maxPerMessage / maxPerRequest。"),
+		);
+		if (outcome.action === "save") draft.inputLimits = outcome.value as ModelInputLimits | undefined;
+		return;
+	}
+	if (fieldId === "compat") {
+		const outcome = await editJsonObjectField(
+			ctx,
+			t("高级 compat"),
+			draft.compat,
+			t("compat 常用键：supportsMidConvoEffort、allowedFallbackModels、supportsMaxOutputTokens、vllmPriority。"),
+		);
+		if (outcome.action === "save") draft.compat = outcome.value;
 	}
 }
 

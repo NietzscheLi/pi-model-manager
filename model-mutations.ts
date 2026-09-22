@@ -30,6 +30,21 @@ import type { createModelDraftForStoredProvider, createProviderDraft } from "./s
 type ProviderDraft = ReturnType<typeof createProviderDraft>;
 type ModelDraft = ReturnType<typeof createModelDraftForStoredProvider>;
 
+/** 与 provider-status 监听的 `pi-model-manager:models-changed` 契约保持一致。 */
+type ModelsChangedEvent =
+	| { type: "provider-rename"; oldId: string; newId: string }
+	| { type: "provider-delete"; providerId: string };
+
+/** 配置落盘后广播接入身份变更，让余额对账等消费方无需等到下次扫描。 */
+function broadcastModelsChanged(pi: ExtensionAPI, events: ModelsChangedEvent[]): void {
+	if (events.length === 0) return;
+	try {
+		pi.events.emit("pi-model-manager:models-changed", { events });
+	} catch {
+		// 广播失败不影响已完成的保存。
+	}
+}
+
 async function assertProviderIsEditable(providerId: string): Promise<void> {
 	if (await isBuiltinProviderId(providerId)) {
 		throw new Error(t("内置接入 {providerId} 不允许通过 /model-manager 编辑或删除。", { providerId }));
@@ -53,11 +68,15 @@ async function notifyModelAvailability(
 	try {
 		const enableOutcome = await enableModelForNextPiStart(ctx.cwd, fullId, replacedFullId);
 		const verification = await verifyNativeModelAvailable(ctx, providerId, modelId);
+		const registryError = ctx.modelRegistry.getError();
+		const warnings = registryError
+			? [...verification.warnings, t("当前会话 registry 报错：{error}", { error: registryError })]
+			: verification.warnings;
 		const enableNote = formatEnableNote(enableOutcome.mode, enableOutcome.scope);
-		if (verification.ok) {
+		if (warnings.length === 0) {
 			ctx.ui.notify(t("{messagePrefix} {fullId}（{availability}）", { messagePrefix, fullId, availability: enableNote }), "info");
 		} else {
-			ctx.ui.notify(t("已保存模型 {fullId}，但启用校验有警告：\n- {warnings}", { fullId, warnings: verification.warnings.join("\n- ") }), "warning");
+			ctx.ui.notify(t("已保存模型 {fullId}，但启用校验有警告：\n- {warnings}", { fullId, warnings: warnings.join("\n- ") }), "warning");
 		}
 	} catch (error) {
 		ctx.ui.notify(t("已保存模型 {fullId}，但启用同步/校验失败：{error}", { fullId, error: formatUnknownError(error) }), "warning");
@@ -101,7 +120,10 @@ export async function saveProviderConfiguration(
 		? ctx.model.id
 		: undefined;
 	await reconcilePersistedProviderRuntime(pi, draft.providerId, stored, nextState);
-	if (oldProviderId && oldProviderId !== draft.providerId) unregisterManagedProvider(pi, oldProviderId);
+	if (oldProviderId && oldProviderId !== draft.providerId) {
+		unregisterManagedProvider(pi, oldProviderId);
+		broadcastModelsChanged(pi, [{ type: "provider-rename", oldId: oldProviderId, newId: draft.providerId }]);
+	}
 
 	ctx.ui.notify(t("已保存接入 {providerId}", { providerId: draft.providerId }), "info");
 
@@ -203,6 +225,7 @@ export async function deleteProviderConfiguration(
 		ctx.ui.notify(t("接入已删除，但 enabledModels 清理失败：{error}", { error: formatUnknownError(error) }), "warning");
 	}
 	unregisterManagedProvider(pi, providerId);
+	broadcastModelsChanged(pi, [{ type: "provider-delete", providerId }]);
 	ctx.ui.notify(t("已删除接入 {providerId}", { providerId }), "info");
 	await withModelRescue(ctx, pi, { providerId }, { reason: t("接入 {providerId} 已删除", { providerId }) });
 }
@@ -233,7 +256,10 @@ export async function deleteModelConfiguration(
 		ctx.ui.notify(t("模型已删除，但 enabledModels 清理失败：{error}", { error: formatUnknownError(error) }), "warning");
 	}
 	if (stored) await reconcilePersistedProviderRuntime(pi, providerId, stored, nextState);
-	else unregisterManagedProvider(pi, providerId);
+	else {
+		unregisterManagedProvider(pi, providerId);
+		broadcastModelsChanged(pi, [{ type: "provider-delete", providerId }]);
+	}
 	ctx.ui.notify(t("已删除模型 {fullId}", { fullId }), "info");
 	await withModelRescue(ctx, pi, { providerId, modelId }, { reason: t("模型 {fullId} 已删除", { fullId }) });
 }

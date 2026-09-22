@@ -2,13 +2,13 @@
 
 English · [简体中文](./README.md)
 
-[![Pi](https://img.shields.io/badge/Pi-%3E%3D0.85.1-6f42c1)](https://github.com/earendil-works/pi)
+[![Pi](https://img.shields.io/badge/Pi-%3E%3D0.87.0-6f42c1)](https://github.com/earendil-works/pi)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](./LICENSE)
 [![Version](https://img.shields.io/badge/version-0.3.6-2f81f7.svg)](https://github.com/NietzscheLi/pi-model-manager)
 
 A TUI model and provider manager for [Pi](https://github.com/earendil-works/pi). It keeps Pi's native `models.json` as the single source of truth for model configuration while adding provider/model editing, client-header identities, proxy routing, and protocol compatibility controls.
 
-> The current stable version is `0.3.6` and requires Pi `>=0.85.1`.
+> The current stable version is `0.3.6` and requires Pi `>=0.87.0`.
 >
 > This project is a maintained fork of [Qihuanxishini/pi-model-manager](https://github.com/Qihuanxishini/pi-model-manager). It is distributed under the [AGPL-3.0 license](./LICENSE). When redistributing a modified version you must retain the copyright and license notices, provide the corresponding source, and clearly mark your changes.
 
@@ -97,6 +97,10 @@ Ctrl+S 保存并启用模型；不切换当前会话模型
   Fast mode       关闭
   上下文窗口      1050000
   最大输出        128000
+  缓存预热·短     300 秒
+  缓存预热·长     3600 秒
+  图片与请求限制  未设置
+  高级 compat     未设置
   请求头          跟随接入（Auto→Codex）
 
 ↑↓ 选择   ←→ 切换选项   Enter 编辑   Ctrl+S 保存并启用   Esc 返回
@@ -219,9 +223,19 @@ Model capabilities include:
 - Display name
 - Vision support (text only, or text + image input)
 - Reasoning support
-- Anthropic Adaptive/Legacy Thinking
-- OpenAI Responses Fast mode
+- Anthropic Adaptive/Legacy Thinking- OpenAI Responses Fast mode
 - Context window and maximum output tokens
+- Cache warming: `promptCache.short` / `promptCache.long` (seconds); pi only warms a model's prompt cache when this is configured (leave blank to clear)
+- Image & request limits: `inputLimits` JSON (`images.resize` maxWidth/maxHeight/maxBytes/jpegQuality, `maxRequestBytes`, ...)
+- Advanced compat: model-level `compat` JSON (`supportsMidConvoEffort`, `allowedFallbackModels`, `supportsMaxOutputTokens`, `vllmPriority`, ...)
+- Metadata source: `models.dev` (default), OpenRouter, or keep manual values
+- Saving syncs context, max tokens, thinking levels, and cost
+
+The provider editor also exposes **Advanced compat** and **Provider modelOverrides** JSON fields; the latter overrides fields per model (for example adding `promptCache.long` for `a/b` behind a gateway). Unknown `models.json` fields are preserved on save unless one of these editors manages them.
+
+### Connection self-test
+
+Press **T** in a provider's model list: the extension sends a real request limited to 1 output token through `ctx.modelRegistry.streamSimple()` and reports latency and token count. It goes through the provider transport registered by this extension (client-header profile, local proxy, protocol adapter, and auth resolution), so it catches link problems that a bare model-list fetch cannot; `Esc` or a 20-second timeout aborts the request.
 
 ### Chat protocol compatibility
 
@@ -291,8 +305,8 @@ Additional considerations:
 
 | Component | Requirement |
 | --- | --- |
-| `@earendil-works/pi-coding-agent` | `>=0.85.1` |
-| `@earendil-works/pi-ai` | `>=0.85.1` |
+| `@earendil-works/pi-coding-agent` | `>=0.87.0` |
+| `@earendil-works/pi-ai` | `>=0.87.0` |
 | `@earendil-works/pi-tui` | `>=0.75.0` |
 | Runtime mode | `/model-manager` requires the Pi TUI |
 

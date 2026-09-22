@@ -40,7 +40,8 @@
 
 - `models.json` 仍是模型配置的唯一权威来源；扩展不会另建一套模型运行时数据库。
 - 未被扩展明确接管的原生 Provider 不会被自动注册、改写或删除。
-- 扩展要求 Pi `>=0.85.1`，并依赖 `@earendil-works/pi-ai >=0.85.1`、`@earendil-works/pi-tui >=0.75.0`。
+- Provider 重命名/删除后，扩展会通过 `pi.events` 广播 `pi-model-manager:models-changed`（`{ events: [{ type: "provider-rename", oldId, newId }] }` / `{ type: "provider-delete", providerId }`），供余额对账等消费方立即同步。
+- 扩展要求 Pi `>=0.87.0`，并依赖 `@earendil-works/pi-ai >=0.87.0`、`@earendil-works/pi-tui >=0.75.0`。
 
 ## 上游同步原则
 

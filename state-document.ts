@@ -9,7 +9,7 @@
 //   - builtInProviderIds 由调用方传入，校验“接入 ID 不与 pi 内置 id 冲突”
 //     （由调用方从 catalog 边界传入，避免本纯函数模块依赖 Pi 运行时 API）
 
-import { cloneJson, cloneStringRecord, hasStringRecordEntries, trimOrFallback } from "./common.ts";
+import { cloneJson, cloneStringRecord, hasStringRecordEntries, isObjectRecord, trimOrFallback } from "./common.ts";
 import {
 	getConfigValueEnvVarNames,
 	getSingleConfigValueEnvVarName,
@@ -109,6 +109,8 @@ export function createProviderDraftFromStored(providerId: string, stored: Stored
 		clientHeaderProfile: stored.clientHeaderProfile ?? "recommended",
 		requestHeaderProfileId: stored.requestHeaderProfileId,
 		customClientHeaders: cloneStringRecord(stored.customClientHeaders),
+		compat: cloneJson(stored.compat),
+		modelOverrides: cloneJson(stored.modelOverrides),
 		httpProxyEnabled: stored.httpProxyEnabled ?? false,
 		httpProxyUrl: stored.httpProxyUrl?.trim() || DEFAULT_PROVIDER_HTTP_PROXY_URL,
 		openAIResponsesStreamCompletionMode: stored.openAIResponsesStreamCompletionMode ?? "standard",
@@ -187,6 +189,9 @@ export function createModelDraftFromStoredModel(
 		reasoningMode: reasoning ? "enabled" : "disabled",
 		thinkingLevelMap: cloneJson(model.thinkingLevelMap),
 		cost: cloneJson(model.cost) ?? { ...ZERO_COST },
+		compat: cloneJson(model.compat),
+		promptCache: cloneJson(model.promptCache),
+		inputLimits: cloneJson(model.inputLimits),
 		anthropicThinkingProtocol: effectiveApi === "anthropic-messages"
 			? (usesAdaptiveThinking ? "adaptive" : "legacy")
 			: undefined,
@@ -255,6 +260,44 @@ export function validateProviderDraft(
 	return errors;
 }
 
+function pushPositiveIntegerError(value: unknown, label: string, errors: string[]): void {
+	if (value === undefined) return;
+	if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+		errors.push(t("{label} 必须是正整数", { label }));
+	}
+}
+
+/** inputLimits 会整体写进 models.json；形状/类型不合法会让 pi 拒绝加载整个 models.json。 */
+function validateInputLimits(value: unknown, errors: string[]): void {
+	if (value === undefined) return;
+	if (!isObjectRecord(value)) {
+		errors.push(t("inputLimits 必须是 JSON 对象"));
+		return;
+	}
+	pushPositiveIntegerError(value.maxRequestBytes, "inputLimits.maxRequestBytes", errors);
+	const images = value.images;
+	if (images === undefined) return;
+	if (!isObjectRecord(images)) {
+		errors.push(t("inputLimits.images 必须是 JSON 对象"));
+		return;
+	}
+	pushPositiveIntegerError(images.maxPerMessage, "inputLimits.images.maxPerMessage", errors);
+	pushPositiveIntegerError(images.maxPerRequest, "inputLimits.images.maxPerRequest", errors);
+	const resize = images.resize;
+	if (resize === undefined) return;
+	if (!isObjectRecord(resize)) {
+		errors.push(t("inputLimits.images.resize 必须是 JSON 对象"));
+		return;
+	}
+	pushPositiveIntegerError(resize.maxWidth, "inputLimits.images.resize.maxWidth", errors);
+	pushPositiveIntegerError(resize.maxHeight, "inputLimits.images.resize.maxHeight", errors);
+	pushPositiveIntegerError(resize.maxBytes, "inputLimits.images.resize.maxBytes", errors);
+	const quality = resize.jpegQuality;
+	if (quality !== undefined && (typeof quality !== "number" || !Number.isInteger(quality) || quality < 1 || quality > 100)) {
+		errors.push(t("inputLimits.images.resize.jpegQuality 必须是 1-100 的整数"));
+	}
+}
+
 export function validateModelDraft(
 	draft: ModelDraft,
 	document: StateDocument,
@@ -275,6 +318,14 @@ export function validateModelDraft(
 		errors.push(t("上下文窗口必须是正整数"));
 	if (!Number.isInteger(draft.maxTokens) || draft.maxTokens <= 0)
 		errors.push(t("最大输出必须是正整数"));
+	for (const key of ["short", "long"] as const) {
+		const value = draft.promptCache?.[key];
+		if (value === undefined) continue;
+		if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+			errors.push(t("缓存存活时间必须是正整数：{key}", { key }));
+		}
+	}
+	validateInputLimits(draft.inputLimits, errors);
 
 	const duplicate = (provider?.models ?? []).find((m) => m.id === draft.modelId.trim());
 	if (duplicate && duplicate.id !== replacedModelId)
@@ -393,6 +444,12 @@ function buildProviderFromDraft(
 	} else {
 		delete next.customClientHeaders;
 	}
+	// draft 是权威来源：编辑工厂已从 stored 初始化这些字段，undefined 表示清空。
+	if (draft.compat && Object.keys(draft.compat).length > 0) next.compat = cloneJson(draft.compat);
+	else delete next.compat;
+	if (draft.modelOverrides && Object.keys(draft.modelOverrides).length > 0) next.modelOverrides = cloneJson(draft.modelOverrides);
+	else delete next.modelOverrides;
+	// 协议兼容开关（openAIChatCompatibilityMode）应用在上述 compat 基线上，保证 JSON 与开关共同作用。
 	if (draft.api === "openai-completions" && draft.openAIChatCompatibilityMode !== undefined) {
 		const compat: CompatSettings = cloneJson(next.compat) ?? {};
 		if (draft.openAIChatCompatibilityMode === "standard") delete compat.supportsDeveloperRole;
@@ -410,7 +467,8 @@ export function buildModelFromDraft(
 ): StoredModel {
 	const modelId = draft.modelId.trim();
 	const reasoning = draft.reasoningMode === "enabled";
-	const compat: CompatSettings = cloneJson(existing?.compat) ?? {};
+	// draft 权威：模型编辑工厂已从 existing 初始化 compat，undefined 表示清空。
+	const compat: CompatSettings = cloneJson(draft.compat) ?? {};
 	const effectiveApi = draft.api;
 	const storedThinkingLevelMap = cloneJson(existing?.thinkingLevelMap);
 	const thinkingLevelMap = normalizeThinkingLevelMap(effectiveApi, reasoning, storedThinkingLevelMap);
@@ -427,6 +485,8 @@ export function buildModelFromDraft(
 	else delete next.api;
 	if (existing?.baseUrl) next.baseUrl = existing.baseUrl;
 	if (hasStringRecordEntries(existing?.headers)) next.headers = cloneStringRecord(existing?.headers);
+	if (draft.promptCache) next.promptCache = cloneJson(draft.promptCache);
+	if (draft.inputLimits) next.inputLimits = cloneJson(draft.inputLimits);
 
 	const name = draft.modelName.trim();
 	if (name) next.name = name;

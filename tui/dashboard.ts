@@ -9,7 +9,7 @@
 //
 // 保存/删除事务委托给 model-mutations.ts，dashboard 只保留交互与校验流程。
 
-import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { BorderedLoader, type ExtensionAPI, type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { formatUnknownError } from "../common.ts";
 import { getUiLanguage, setUiLanguage, t, type UiLanguage } from "../i18n.ts";
 import { writeUiLanguage } from "../ui-language-settings.ts";
@@ -249,7 +249,108 @@ async function deleteModel(pi: ExtensionAPI, ctx: ExtensionCommandContext, provi
 
 // ========== 子菜单 ==========
 
-type ProviderShortcut = "add-model" | "edit-provider" | "delete-model";
+type ProviderShortcut = "add-model" | "edit-provider" | "delete-model" | "test-connection";
+
+const CONNECTION_TEST_TIMEOUT_MS = 20_000;
+
+type RegistryModel = Parameters<ExtensionCommandContext["modelRegistry"]["streamSimple"]>[0];
+
+type ConnectionProbeResult =
+	| { status: "ok"; tokens: number }
+	| { status: "cancelled" }
+	| { status: "timeout" }
+	| { status: "failed"; message: string };
+
+/**
+ * 连通性自检：走 Pi 的 registry.streamSimple，因此会经过本扩展注册的 provider transport
+ * （请求头 profile、本机代理、协议适配），只花 1 个输出 token。
+ */
+async function runConnectionProbe(
+	ctx: ExtensionCommandContext,
+	model: RegistryModel,
+	cancelSignal: AbortSignal,
+): Promise<ConnectionProbeResult> {
+	const controller = new AbortController();
+	const onCancel = () => controller.abort();
+	cancelSignal.addEventListener("abort", onCancel, { once: true });
+	let timedOut = false;
+	const timer = setTimeout(() => {
+		timedOut = true;
+		controller.abort();
+	}, CONNECTION_TEST_TIMEOUT_MS);
+	timer.unref?.();
+	try {
+		const stream = ctx.modelRegistry.streamSimple(
+			model,
+			{ messages: [{ role: "user", content: "ping", timestamp: Date.now() }] },
+			{ maxTokens: 1, signal: controller.signal },
+		);
+		let failure: string | undefined;
+		for await (const event of stream) {
+			if (event.type === "error") failure = event.error.errorMessage ?? event.reason;
+		}
+		const result = await stream.result().catch(() => undefined);
+		if (timedOut) return { status: "timeout" };
+		if (cancelSignal.aborted) return { status: "cancelled" };
+		if (failure) return { status: "failed", message: failure };
+		if (!result) return { status: "failed", message: "no result" };
+		if (result.stopReason === "error" || result.errorMessage) {
+			return { status: "failed", message: result.errorMessage ?? result.stopReason };
+		}
+		return { status: "ok", tokens: result.usage.output };
+	} catch (error) {
+		if (timedOut) return { status: "timeout" };
+		if (cancelSignal.aborted) return { status: "cancelled" };
+		return { status: "failed", message: formatUnknownError(error) };
+	} finally {
+		clearTimeout(timer);
+		cancelSignal.removeEventListener("abort", onCancel);
+	}
+}
+
+async function testModelConnection(ctx: ExtensionCommandContext, providerId: string, modelId: string): Promise<void> {
+	const fullId = getModelFullId(providerId, modelId);
+	const confirmed = await ctx.ui.confirm(
+		t("自检模型 {fullId}", { fullId }),
+		t("将向该模型发送 1 个输出 token 的真实请求（可能产生少量费用），继续？"),
+	);
+	if (!confirmed) return;
+	const model = ctx.modelRegistry.find(providerId, modelId);
+	if (!model) {
+		ctx.ui.notify(t("模型未注册到当前会话；请先保存配置或执行 /reload 后重试。"), "warning");
+		return;
+	}
+	const startedAt = Date.now();
+	const outcome = await ctx.ui.custom<ConnectionProbeResult>((tui, theme, _keybindings, done) => {
+		const loader = new BorderedLoader(tui, theme, t("正在自检 {fullId}（最多 20 秒）…", { fullId }), { cancellable: true });
+		let settled = false;
+		const finish = (result: ConnectionProbeResult) => {
+			if (settled) return;
+			settled = true;
+			done(result);
+		};
+		loader.onAbort = () => finish({ status: "cancelled" });
+		void runConnectionProbe(ctx, model, loader.signal).then(finish);
+		return loader;
+	});
+	if (outcome.status === "ok") {
+		ctx.ui.notify(t("连通正常：{fullId} · 输出 {tokens} tokens · {duration} ms", {
+			fullId,
+			tokens: outcome.tokens,
+			duration: Date.now() - startedAt,
+		}), "info");
+		return;
+	}
+	if (outcome.status === "cancelled") {
+		ctx.ui.notify(t("自检已取消"), "info");
+		return;
+	}
+	if (outcome.status === "timeout") {
+		ctx.ui.notify(t("自检超时（20 秒）"), "warning");
+		return;
+	}
+	ctx.ui.notify(t("连通失败：{error}", { error: outcome.message }), "warning");
+}
 
 async function editStoredModel(
 	pi: ExtensionAPI,
@@ -291,6 +392,7 @@ async function showProviderMenu(pi: ExtensionAPI, ctx: ExtensionCommandContext, 
 			[
 				{ input: "a", shortcut: "add-model" },
 				{ input: "e", shortcut: "edit-provider" },
+				{ input: "t", shortcut: "test-connection" },
 				{ input: "d", shortcut: "delete-model" },
 			],
 			{
@@ -309,6 +411,7 @@ async function showProviderMenu(pi: ExtensionAPI, ctx: ExtensionCommandContext, 
 					{ key: "Enter", label: t("编辑模型") },
 					{ key: "A", label: t("添加模型") },
 					{ key: "E", label: t("编辑接入") },
+					{ key: "T", label: t("连通性自检") },
 					{ key: "D", label: t("删除模型") },
 					{ key: "Esc", label: t("返回") },
 				],
@@ -330,6 +433,15 @@ async function showProviderMenu(pi: ExtensionAPI, ctx: ExtensionCommandContext, 
 					await saveProviderDraft(pi, ctx, outcome.draft, providerId);
 					if (outcome.draft.providerId !== providerId) return true;
 				}
+				continue;
+			}
+			if (action.shortcut === "test-connection") {
+				const selectedModelId = rows[cursor.index]?.modelId;
+				if (!selectedModelId) {
+					ctx.ui.notify(t("没有可自检的模型。"), "info");
+					continue;
+				}
+				await testModelConnection(ctx, providerId, selectedModelId);
 				continue;
 			}
 			const selectedModelId = rows[cursor.index]?.modelId;

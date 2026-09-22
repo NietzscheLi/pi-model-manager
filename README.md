@@ -2,13 +2,13 @@
 
 [English](./README.en.md) · 简体中文
 
-[![Pi](https://img.shields.io/badge/Pi-%3E%3D0.85.1-6f42c1)](https://github.com/earendil-works/pi)
+[![Pi](https://img.shields.io/badge/Pi-%3E%3D0.87.0-6f42c1)](https://github.com/earendil-works/pi)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](./LICENSE)
 [![Version](https://img.shields.io/badge/version-0.3.6-2f81f7.svg)](https://github.com/NietzscheLi/pi-model-manager)
 
 一个面向 [Pi](https://github.com/earendil-works/pi) 的 TUI 模型与接入管理扩展。它以 Pi 原生 `models.json` 为模型配置的唯一权威来源，并提供接入/模型编辑、请求头身份、代理路由和协议兼容配置。
 
-> 当前稳定版为 `0.3.6`，要求 Pi `>=0.85.1`。
+> 当前稳定版为 `0.3.6`，要求 Pi `>=0.87.0`。
 >
 > 本项目基于 [Qihuanxishini/pi-model-manager](https://github.com/Qihuanxishini/pi-model-manager) 的源码维护，是其衍生/修改版本。请遵守原项目及本项目的 [AGPL-3.0 许可](./LICENSE)，分发修改版时须保留版权与许可声明、公开对应源码，并明确标注改动。
 
@@ -97,6 +97,10 @@ Ctrl+S 保存并启用模型；不切换当前会话模型
   Fast mode       关闭
   上下文窗口      1050000
   最大输出        128000
+  缓存预热·短     300 秒
+  缓存预热·长     3600 秒
+  图片与请求限制  未设置
+  高级 compat     未设置
   请求头          跟随接入（Auto→Codex）
 
 ↑↓ 选择   ←→ 切换选项   Enter 编辑   Ctrl+S 保存并启用   Esc 返回
@@ -260,8 +264,17 @@ Anthropic 标准端点在写入 `models.json` 时转换为 Pi 原生 SDK 所需�
 - Anthropic Adaptive/Legacy Thinking 协议
 - OpenAI Responses Fast mode
 - Context window 与最大输出 token
+- **缓存预热**：`promptCache.short` / `promptCache.long`（秒）；配置后 pi 才会为该模型做缓存预热（留空清除）
+- **图片与请求限制**：`inputLimits` JSON（`images.resize` 的 maxWidth/maxHeight/maxBytes/jpegQuality、`maxRequestBytes` 等）
+- **高级 compat**：模型级 `compat` JSON（如 `supportsMidConvoEffort`、`allowedFallbackModels`、`supportsMaxOutputTokens`、`vllmPriority`）
 - 元数据源：`models.dev`（默认）、OpenRouter，或手工保留现有值
 - 保存时同步 context、max tokens、Thinking 等级和 cost
+
+接入编辑器另外提供 `高级 compat` 与 `接入级 modelOverrides` 两个 JSON 入口（后者用于按模型覆盖字段，例如跨代理时给 `a/b` 补 `promptCache.long`）。两个编辑器都不覆盖的未知 models.json 字段在保存时原样保留。
+
+### 连通性自检
+
+接入内的模型列表按 **T**：先用 `ctx.modelRegistry.streamSimple()` 发一次只带 1 个输出 token 的真实请求，再报告时延与 token 数。它走的是本插件注册的 provider transport（请求头 profile、本机代理、协议适配与认证解析），因此比裸拉模型列表更能暴露真实链路问题；取消或 20 秒超时都会中止请求。
 
 ## 请求头模式
 
@@ -321,8 +334,8 @@ ${ANTHROPIC_API_KEY}
 
 | 组件 | 要求 |
 | --- | --- |
-| `@earendil-works/pi-coding-agent` | `>=0.85.1` |
-| `@earendil-works/pi-ai` | `>=0.85.1` |
+| `@earendil-works/pi-coding-agent` | `>=0.87.0` |
+| `@earendil-works/pi-ai` | `>=0.87.0` |
 | `@earendil-works/pi-tui` | `>=0.75.0` |
 | 运行模式 | `/model-manager` 需要 Pi TUI |
 

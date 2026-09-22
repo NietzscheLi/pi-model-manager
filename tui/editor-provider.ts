@@ -15,6 +15,7 @@ import {
 	type OpenAIResponsesStreamCompletionMode,
 } from "../types.ts";
 import { showOptionPicker, showPersistentFormMenu, padLabel, type HorizontalDirection, type MenuCursor } from "./persistent-menu.ts";
+import { editJsonObjectField } from "./json-field.ts";
 import {
 	describeProfile,
 	formatApiShort,
@@ -119,6 +120,8 @@ function buildRows(
 		{ id: "apiKey", label: "API key", value: maskSecret(draft.apiKey) },
 		{ id: "authHeader", label: t("认证头"), value: draft.authHeader ? "Bearer" : t("默认") },
 		{ id: "clientHeaderProfile", label: t("请求头"), value: profileDisplay },
+		{ id: "compat", label: t("高级 compat"), value: draft.compat && Object.keys(draft.compat).length > 0 ? t("已配置") : t("未设置") },
+		{ id: "modelOverrides", label: t("接入级 modelOverrides"), value: draft.modelOverrides && Object.keys(draft.modelOverrides).length > 0 ? t("已配置") : t("未设置") },
 	);
 	return rows;
 }
@@ -262,6 +265,26 @@ async function editField(
 		const value = await ctx.ui.input(t("API key（可选；明文 / $ENV_VAR / !command；当前：{current}，留空清除）", { current: currentLabel }), "");
 		if (value === undefined) return;
 		draft.apiKey = value.trim();
+		return;
+	}
+	if (fieldId === "compat") {
+		const outcome = await editJsonObjectField(
+			ctx,
+			t("高级 compat"),
+			draft.compat,
+			t("compat 常用键：supportsMidConvoEffort、allowedFallbackModels、supportsMaxOutputTokens、vllmPriority。"),
+		);
+		if (outcome.action === "save") draft.compat = outcome.value;
+		return;
+	}
+	if (fieldId === "modelOverrides") {
+		const outcome = await editJsonObjectField(
+			ctx,
+			t("接入级 modelOverrides"),
+			draft.modelOverrides,
+			t("modelOverrides 按模型 ID 覆盖字段，例如 a/b 的 promptCache.long。"),
+		);
+		if (outcome.action === "save") draft.modelOverrides = outcome.value;
 		return;
 	}
 	// [喵喵喵]: baseUrl 是唯一走通用文本输入的字段，显式列出才能保持 draft 的类型检查。

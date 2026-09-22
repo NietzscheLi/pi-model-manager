@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { cloneJson, isObjectRecord, stripJsonNoise } from "./common.ts";
 import { readStableTextFileSnapshot, type FileSignature } from "./file-snapshot.ts";
 import { t } from "./i18n.ts";
-import type { TokenCost } from "./types.ts";
+import type { ModelInputLimits, ModelPromptCache, TokenCost } from "./types.ts";
 
 export const MODELS_JSON_PATH = join(getAgentDir(), "models.json");
 
@@ -27,6 +27,8 @@ export interface ModelsJsonModelEntry {
 	contextWindow?: number;
 	maxTokens?: number;
 	cost?: TokenCost;
+	promptCache?: ModelPromptCache;
+	inputLimits?: ModelInputLimits;
 	headers?: Record<string, string>;
 	compat?: Record<string, unknown>;
 	[key: string]: unknown;

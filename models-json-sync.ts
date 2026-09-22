@@ -103,6 +103,10 @@ function buildModelsJsonModelEntry(
 	else delete next.headers;
 	if (model.compat) next.compat = copyRecord(model.compat);
 	else delete next.compat;
+	if (model.promptCache) next.promptCache = cloneJson(model.promptCache);
+	else delete next.promptCache;
+	if (model.inputLimits) next.inputLimits = cloneJson(model.inputLimits);
+	else delete next.inputLimits;
 	return next;
 }
 

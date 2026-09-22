@@ -40,6 +40,34 @@ export interface TokenCost {
 	tiers?: TokenCostTier[];
 }
 
+/** 模型级提示词缓存存活时间（秒）；配置后 pi 才会为该模型做缓存预热。 */
+export interface ModelPromptCache {
+	short?: number;
+	long?: number;
+	/** models.json 中本插件不解释的其它键，保存时原样保留。 */
+	[key: string]: unknown;
+}
+
+/** 进入历史前的图片编码上限；未配置时 pi 使用保守默认值。 */
+export interface ModelImageResizeLimits {
+	maxWidth?: number;
+	maxHeight?: number;
+	maxBytes?: number;
+	jpegQuality?: number;
+}
+
+/** 模型级请求限制与图片预处理（models.json `inputLimits`）。 */
+export interface ModelInputLimits {
+	maxRequestBytes?: number;
+	images?: {
+		resize?: ModelImageResizeLimits;
+		maxPerMessage?: number;
+		maxPerRequest?: number;
+	};
+	/** models.json 中本插件不解释的其它键，保存时原样保留。 */
+	[key: string]: unknown;
+}
+
 export interface StoredRequestHeaderProfile {
 	name: string;
 	headers: Record<string, string>;
@@ -64,6 +92,10 @@ export interface StoredModel {
 	contextWindow: number;
 	maxTokens: number;
 	cost: TokenCost;
+	/** pi 缓存预热的 per-model 缓存存活时间；未配置则不预热。 */
+	promptCache?: ModelPromptCache;
+	/** 请求体积与图片压缩限制；未配置时 pi 使用保守默认值。 */
+	inputLimits?: ModelInputLimits;
 	/** 旧版模型级请求头字段，仅用于读取旧 state 后折叠到接入级。 */
 	clientHeaderProfile?: ClientHeaderProfileId;
 	requestHeaderProfileId?: string;
@@ -120,6 +152,10 @@ export interface ProviderDraft {
 	clientHeaderProfile: ClientHeaderProfileId;
 	requestHeaderProfileId?: string;
 	customClientHeaders: Record<string, string>;
+	/** 高级编辑：接入级 compat 覆盖（原样写回 models.json）。 */
+	compat?: CompatSettings;
+	/** 高级编辑：per-model 覆盖（原样写回 models.json）。 */
+	modelOverrides?: Record<string, unknown>;
 	httpProxyEnabled: boolean;
 	httpProxyUrl: string;
 	selectedIndex: number;
@@ -148,6 +184,10 @@ export interface ModelDraft {
 	reasoningMode: ReasoningMode;
 	thinkingLevelMap?: ThinkingLevelMap;
 	cost: TokenCost;
+	/** 高级编辑：模型级 compat 覆盖（原样写回 models.json）。 */
+	compat?: CompatSettings;
+	promptCache?: ModelPromptCache;
+	inputLimits?: ModelInputLimits;
 	anthropicThinkingProtocol?: AnthropicThinkingProtocol;
 	contextWindow: number;
 	maxTokens: number;

@@ -34,6 +34,8 @@ import type {
 	ApiKind,
 	CompatSettings,
 	ModelInputKind,
+	ModelInputLimits,
+	ModelPromptCache,
 	StateDocument,
 	StoredModel,
 	StoredProvider,
@@ -94,6 +96,16 @@ function readModelInput(model: ModelsJsonModelEntry): ModelInputKind[] {
 	return input && input.length > 0 ? [...new Set(input)] : ["text"];
 }
 
+function readModelPromptCache(value: unknown): ModelPromptCache | undefined {
+	// 原样保留（包括本插件不解释的子键）；short/long 的合法性在保存前校验。
+	return isObjectRecord(value) ? cloneJson(value) as ModelPromptCache : undefined;
+}
+
+/** inputLimits 是 pi 的透传配置：保留未知子字段，只要求是对象。 */
+function readModelInputLimits(value: unknown): ModelInputLimits | undefined {
+	return isObjectRecord(value) ? cloneJson(value) as ModelInputLimits : undefined;
+}
+
 function resolveProviderCustomHeaders(
 	providerMetadata: MetadataDocument["providers"][string] | undefined,
 	metadata: MetadataDocument,
@@ -140,6 +152,10 @@ function buildStoredModelFromModelsJson(
 		maxTokens: model.maxTokens && model.maxTokens > 0 ? model.maxTokens : 16384,
 		cost: readModelCost(model),
 	};
+	const promptCache = model.promptCache === undefined ? undefined : readModelPromptCache(model.promptCache);
+	if (promptCache) stored.promptCache = promptCache;
+	const inputLimits = model.inputLimits === undefined ? undefined : readModelInputLimits(model.inputLimits);
+	if (inputLimits) stored.inputLimits = inputLimits;
 	if (explicitApi && explicitApi !== providerApi) stored.api = explicitApi;
 	const modelMetadata = metadata.models[getFullModelId(providerId, model.id)];
 	let modelBaseUrl = model.baseUrl ?? providerBaseUrl;
