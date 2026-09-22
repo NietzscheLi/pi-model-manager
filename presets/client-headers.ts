@@ -42,14 +42,18 @@ function cloneHeadersForCompat(
 }
 
 
-/** 按大小写不敏感的字段名合并请求头，后者覆盖前者。 */
+/** 按大小写不敏感的字段名合并请求头，后者覆盖前者；`null` 表示删除该头（pi `before_provider_headers` 语义）。 */
 export function mergeModelRequestHeaders(
-	nativeHeaders: Record<string, string> | undefined,
-	profileHeaders: Record<string, string> | undefined,
+	nativeHeaders: Record<string, string | null | undefined> | undefined,
+	profileHeaders: Record<string, string | null | undefined> | undefined,
 ): Record<string, string> | undefined {
 	const merged: Record<string, string> = {};
 	for (const headers of [nativeHeaders, profileHeaders]) {
-		for (const [name, value] of Object.entries(headers ?? {})) merged[name.toLowerCase()] = value;
+		for (const [name, value] of Object.entries(headers ?? {})) {
+			const key = name.toLowerCase();
+			if (typeof value === "string") merged[key] = value;
+			else delete merged[key];
+		}
 	}
 	return hasStringRecordEntries(merged) ? merged : undefined;
 }

@@ -43,7 +43,7 @@ function isResponsesTerminalFrame(frame: Uint8Array): boolean {
 	}
 }
 
-function appendBytes(left: Uint8Array, right: Uint8Array): Uint8Array {
+function appendBytes(left: Uint8Array, right: Uint8Array): Uint8Array<ArrayBuffer> {
 	const combined = new Uint8Array(left.length + right.length);
 	combined.set(left);
 	combined.set(right, left.length);

@@ -32,6 +32,9 @@ test("自定义 beta 保留原值，显式字段覆盖内置模板且同名头�
 	provider.customClientHeaders = custom;
 	assert.equal(buildModelRequestHeaders(provider, model, {}, {})?.["anthropic-beta"], custom["Anthropic-Beta"]);
 	assert.deepEqual(mergeModelRequestHeaders({ "X-Test": "default" }, { "x-test": "explicit" }), { "x-test": "explicit" });
+	// pi 用 null 标记删除请求头（before_provider_headers 语义）
+	assert.equal(mergeModelRequestHeaders({ "X-Test": "default" }, { "x-test": null }), undefined);
+	assert.deepEqual(mergeModelRequestHeaders({ "X-Test": "default", "X-Keep": "keep" }, { "x-test": null }), { "x-keep": "keep" });
 });
 
 async function seed(managed: boolean) {
