@@ -5,7 +5,8 @@
   "type": "module",
   "main": "./index.ts",
   "scripts": {
-    "test": "node --experimental-strip-types --import ./tests/register-test-loader.mjs --test --test-reporter=spec tests/*.test.ts"
+    "test": "node --experimental-strip-types --import ./tests/register-test-loader.mjs --test --test-reporter=spec tests/*.test.ts",
+    "typecheck": "tsc --noEmit"
   },
   "files": [
     "NOTICE",
@@ -56,7 +57,9 @@
     "anthropic"
   ],
   "author": "Qihuanxishini",
-  "contributors": ["NietzscheLi"],
+  "contributors": [
+    "NietzscheLi"
+  ],
   "license": "AGPL-3.0-only",
   "repository": {
     "type": "git",
@@ -72,8 +75,8 @@
     ]
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": ">=0.85.1",
-    "@earendil-works/pi-ai": ">=0.85.1",
+    "@earendil-works/pi-ai": ">=0.87.0",
+    "@earendil-works/pi-coding-agent": ">=0.87.0",
     "@earendil-works/pi-tui": ">=0.75.0"
   },
   "dependencies": {
@@ -82,5 +85,12 @@
     "minimatch": "^10.2.6",
     "proper-lockfile": "^4.1.2",
     "yaml": "^2.8.1"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "0.87.0",
+    "@earendil-works/pi-coding-agent": "0.87.0",
+    "@earendil-works/pi-tui": "0.87.0",
+    "@types/node": "22.20.4",
+    "typescript": "6.0.3"
   }
 }

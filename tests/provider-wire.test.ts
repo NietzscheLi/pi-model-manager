@@ -12,7 +12,8 @@ import { join, resolve } from "node:path";
 import { buildSynchronizedModelsDocument } from "../models-json-sync.ts";
 
 const realRuntime = process.env.PI_MODEL_MANAGER_REAL_RUNTIME === "1";
-const emptyCredentials = { async read() {}, async list() { return []; }, async modify() {}, async delete() {} };
+type CreateRuntimeOptions = NonNullable<Parameters<typeof ModelRuntime.create>[0]>;
+const emptyCredentials = { async read() {}, async list() { return []; }, async modify() {}, async delete() {} } as unknown as NonNullable<CreateRuntimeOptions["credentials"]>;
 const context = {
 	systemPrompt: "Follow the test system instructions.",
 	messages: [{ role: "user", content: "hello", timestamp: 1 }],
@@ -163,7 +164,7 @@ test("Responses 兼容模式在正式终态事件后完成并取消未关闭上�
 		openAIResponsesStreamCompletionMode: "terminal-event" as const,
 	};
 	const transport = createProviderTransport(runtime, native, compatible);
-	const output = await transport.streamSimple({ ...compatible.models[0], api: "openai-responses", baseUrl: compatible.baseUrl } as any, {} as any, { fetch: async () => upstream }).result();
+	const output = await transport.streamSimple({ ...compatible.models[0], api: "openai-responses", baseUrl: compatible.baseUrl } as any, {} as any, { fetch: async () => upstream }).result() as unknown as string;
 	assert.match(output, /response\.completed/);
 	await upstreamCancelled.promise;
 });
@@ -195,7 +196,7 @@ test("Responses 标准模式仍等待上游流结束", async () => {
 	await terminalSent.promise;
 	assert.equal(await Promise.race([pending.then(() => "done"), new Promise((resolve) => setTimeout(() => resolve("waiting"), 50))]), "waiting");
 	release.resolve();
-	assert.match(await pending, /response\.completed/);
+	assert.match(await pending as unknown as string, /response\.completed/);
 });
 
 
