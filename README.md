@@ -264,13 +264,13 @@ Anthropic 标准端点在写入 `models.json` 时转换为 Pi 原生 SDK 所需�
 - Anthropic Adaptive/Legacy Thinking 协议
 - OpenAI Responses Fast mode
 - Context window 与最大输出 token
-- **缓存预热**：`promptCache.short` / `promptCache.long`（秒）；配置后 pi 才会为该模型做缓存预热（留空清除）
-- **图片与请求限制**：`inputLimits` JSON（`images.resize` 的 maxWidth/maxHeight/maxBytes/jpegQuality、`maxRequestBytes` 等）
-- **高级 compat**：模型级 `compat` JSON（如 `supportsMidConvoEffort`、`allowedFallbackModels`、`supportsMaxOutputTokens`、`vllmPriority`）
+- **缓存预热**：`promptCache.short` / `promptCache.long`（秒）；pi 会在到期前重发请求保活。Anthropic 内置值为 300 / 3600，第三方中转请填上游真实 TTL；留空 = 该层级不预热，且还需模型有 cost 元数据、预计省下 ≥ $0.05 时 pi 才会真正预热
+- **图片与请求限制**：`inputLimits` JSON；只有 `images.resize`（maxWidth/maxHeight/maxBytes/jpegQuality）会压缩新图片，留空用默认 2000×2000、4.5 MiB、质量 80，`maxRequestBytes` 与 `images.maxPerMessage / maxPerRequest` 目前只是元数据
+- **高级 compat**：模型级 `compat` JSON；只填已在真实上游验证过的差异项（如 Anthropic 的 `supportsMidConvoEffort`、Chat 的 `maxTokensField`），不确定就留空
 - 元数据源：`models.dev`（默认）、OpenRouter，或手工保留现有值
 - 保存时同步 context、max tokens、Thinking 等级和 cost
 
-接入编辑器另外提供 `高级 compat` 与 `接入级 modelOverrides` 两个 JSON 入口（后者用于按模型覆盖字段，例如跨代理时给 `a/b` 补 `promptCache.long`）。两个编辑器都不覆盖的未知 models.json 字段在保存时原样保留。
+接入编辑器另外提供 `高级 compat` 与 `接入级 modelOverrides` 两个 JSON 入口（后者用于按模型覆盖字段，例如跨代理时给 `a/b` 补 `{"promptCache": {"short": 300, "long": 3600}}`）。两个编辑器都不覆盖的未知 models.json 字段在保存时原样保留。
 
 ### 连通性自检
 

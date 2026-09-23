@@ -17,6 +17,7 @@ import {
 	describeVisionInput,
 	formatApiShort,
 	getApiChoices,
+	getCompatExample,
 	getVisionInputChoices,
 	supportsVisionInput,
 } from "./ui-helpers.ts";
@@ -76,6 +77,49 @@ function describePromptCache(value: unknown): string {
 	return typeof value === "number" && value > 0 ? t("{count} 秒", { count: value }) : t("未设置");
 }
 
+// promptCache 的值就是「上游缓存能活多久」，只能抄上游真实 TTL；这里只用主流口径当输入提示。
+const PROMPT_CACHE_SUGGESTED_SECONDS = { short: 300, long: 3600 } as const;
+const INPUT_LIMITS_EXAMPLE = `{"images":{"resize":{"maxWidth":1568,"maxHeight":1568,"jpegQuality":75}}}`;
+
+// 新增的高级字段只给入口等于让用户猜值；选中行时把语义、推荐值和留空后果一并摊开。
+function getFieldDetailLines(draft: ModelDraft, fieldId: string): string[] {
+	switch (fieldId) {
+		case "promptCacheShort":
+			return [
+				t("「短」层级的缓存存活秒数（默认层级）；pi 会在到期前重发请求保活。"),
+				t("Anthropic 短缓存通常 300（5 分钟）；填真实 TTL，拿不准留空 = 不预热。"),
+				t("还需模型有 cost 元数据、pi 预计省 ≥ $0.05 才真正预热。"),
+			];
+		case "promptCacheLong":
+			return [
+				t("「长」层级的缓存存活秒数；仅当请求走 long 保留层级时生效。"),
+				t("Anthropic 扩展缓存通常 3600（1 小时）；常见短/长一起填 300 / 3600。"),
+				t("long 层级来自 PI_CACHE_RETENTION=long；留空 = 该层级不预热。"),
+			];
+		case "inputLimits":
+			return [
+				t("只在上游限制图片或请求体积时才需要；pi 只用 images.resize 压缩新图片。"),
+				t("留空 = 默认 2000×2000、4.5 MiB、质量 80；maxRequestBytes 等硬上限只是元数据。"),
+				t("例：{example}", { example: INPUT_LIMITS_EXAMPLE }),
+			];
+		case "compat": {
+			const example = getCompatExample(draft.api);
+			if (example) {
+				return [
+					t("只填已在真实上游验证过的差异项；不确定就留空，用 pi 的自动判断。"),
+					t("示例（{api}）：{example}", { api: formatApiShort(draft.api), example }),
+				];
+			}
+			return [
+				t("只填已在真实上游验证过的差异项；不确定就留空，用 pi 的自动判断。"),
+				t("当前协议（{api}）没有可用的 compat 项，请保持留空。", { api: formatApiShort(draft.api) }),
+			];
+		}
+		default:
+			return [];
+	}
+}
+
 
 // 开关字段在两个方向上都是取反，因此不看 direction；返回是否真的切换了字段。
 function applyHorizontalToggle(draft: ModelDraft, fieldId: string): boolean {
@@ -122,8 +166,8 @@ function buildRows(draft: ModelDraft): FieldRow[] {
 	rows.push(
 		{ id: "contextWindow", label: t("上下文窗口"), value: String(draft.contextWindow) },
 		{ id: "maxTokens", label: t("最大输出"), value: String(draft.maxTokens) },
-		{ id: "promptCacheShort", label: t("缓存预热·短"), value: describePromptCache(draft.promptCache?.short) },
-		{ id: "promptCacheLong", label: t("缓存预热·长"), value: describePromptCache(draft.promptCache?.long) },
+		{ id: "promptCacheShort", label: t("缓存预热·短(秒)"), value: describePromptCache(draft.promptCache?.short) },
+		{ id: "promptCacheLong", label: t("缓存预热·长(秒)"), value: describePromptCache(draft.promptCache?.long) },
 		{ id: "inputLimits", label: t("图片与请求限制"), value: draft.inputLimits ? t("已配置") : t("未设置") },
 		{ id: "compat", label: t("高级 compat"), value: draft.compat && Object.keys(draft.compat).length > 0 ? t("已配置") : t("未设置") },
 	);
@@ -211,10 +255,17 @@ async function editIntField(ctx: ExtensionCommandContext, draft: ModelDraft, fie
 
 async function editPromptCacheField(ctx: ExtensionCommandContext, draft: ModelDraft, key: "short" | "long"): Promise<void> {
 	const label = key === "short" ? t("缓存预热·短") : t("缓存预热·长");
+	const suggestion = PROMPT_CACHE_SUGGESTED_SECONDS[key];
 	const current = draft.promptCache?.[key];
+	// [喵喵喵]: pi 0.87 的 ctx.ui.input 会忽略 placeholder（ExtensionInputComponent 收下不用），
+	// 推荐值必须写进一定可见的标题里，placeholder 只作旧版/未来版本的兜底。
 	const value = await ctx.ui.input(
-		t("{label}（当前：{current}；留空清除）", { label, current: describePromptCache(current) }),
-		current ? String(current) : "",
+		t("{label}（秒；常见 {suggestion}；当前：{current}；留空关闭该层级预热）", {
+			label,
+			suggestion: String(suggestion),
+			current: describePromptCache(current),
+		}),
+		current ? String(current) : String(suggestion),
 	);
 	if (value === undefined) return;
 	const trimmed = value.trim();
@@ -339,7 +390,7 @@ async function editField(
 			ctx,
 			t("图片与请求限制"),
 			draft.inputLimits,
-			t("inputLimits 常用键：images.resize（maxWidth/maxHeight/maxBytes/jpegQuality）、maxRequestBytes、images.maxPerMessage / maxPerRequest。"),
+			t("inputLimits 常用键：images.resize（maxWidth/maxHeight/maxBytes/jpegQuality）、maxRequestBytes、images.maxPerMessage / maxPerRequest；示例：{example}", { example: INPUT_LIMITS_EXAMPLE }),
 		);
 		if (outcome.action === "save") draft.inputLimits = outcome.value as ModelInputLimits | undefined;
 		return;
@@ -349,7 +400,7 @@ async function editField(
 			ctx,
 			t("高级 compat"),
 			draft.compat,
-			t("compat 常用键：supportsMidConvoEffort、allowedFallbackModels、supportsMaxOutputTokens、vllmPriority。"),
+			getFieldDetailLines(draft, "compat").join(" "),
 		);
 		if (outcome.action === "save") draft.compat = outcome.value;
 	}
@@ -390,6 +441,8 @@ export async function editModel(
 					t("接入 {providerId} · API {api}", { providerId: draft.providerId, api: formatApiShort(draft.api) }),
 					t("Ctrl+S 保存并启用模型；不切换当前会话模型"),
 				],
+				getDetailLines: (selectedRow, theme) =>
+					getFieldDetailLines(draft, selectedRow?.id ?? "").map((line) => theme.fg("dim", `  ${line}`)),
 				onAdjust: (id) => {
 					if (!applyHorizontalToggle(draft, id)) return undefined;
 					return toMenuRows(buildRows(draft));

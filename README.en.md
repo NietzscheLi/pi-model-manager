@@ -225,13 +225,13 @@ Model capabilities include:
 - Reasoning support
 - Anthropic Adaptive/Legacy Thinking- OpenAI Responses Fast mode
 - Context window and maximum output tokens
-- Cache warming: `promptCache.short` / `promptCache.long` (seconds); pi only warms a model's prompt cache when this is configured (leave blank to clear)
-- Image & request limits: `inputLimits` JSON (`images.resize` maxWidth/maxHeight/maxBytes/jpegQuality, `maxRequestBytes`, ...)
-- Advanced compat: model-level `compat` JSON (`supportsMidConvoEffort`, `allowedFallbackModels`, `supportsMaxOutputTokens`, `vllmPriority`, ...)
+- Cache warming: `promptCache.short` / `promptCache.long` (seconds); pi re-sends the request before expiry to keep the entry alive. Built-in Anthropic models use 300 / 3600; behind a gateway enter the upstream's real TTL. Blank = no warming for that tier, and pi warms only with cost metadata and an expected saving of at least $0.05
+- Image & request limits: `inputLimits` JSON; only `images.resize` (maxWidth/maxHeight/maxBytes/jpegQuality) compresses new images, blank keeps the defaults 2000×2000, 4.5 MiB, quality 80; `maxRequestBytes` and `images.maxPerMessage / maxPerRequest` are metadata only
+- Advanced compat: model-level `compat` JSON; enter only differences verified against the real upstream (e.g. Anthropic `supportsMidConvoEffort`, Chat `maxTokensField`), leave blank when unsure
 - Metadata source: `models.dev` (default), OpenRouter, or keep manual values
 - Saving syncs context, max tokens, thinking levels, and cost
 
-The provider editor also exposes **Advanced compat** and **Provider modelOverrides** JSON fields; the latter overrides fields per model (for example adding `promptCache.long` for `a/b` behind a gateway). Unknown `models.json` fields are preserved on save unless one of these editors manages them.
+The provider editor also exposes **Advanced compat** and **Provider modelOverrides** JSON fields; the latter overrides fields per model (for example adding `{"promptCache": {"short": 300, "long": 3600}}` for `a/b` behind a gateway). Unknown `models.json` fields are preserved on save unless one of these editors manages them.
 
 ### Connection self-test
 

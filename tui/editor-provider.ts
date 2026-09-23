@@ -21,9 +21,13 @@ import {
 	formatApiShort,
 	getApiChoices,
 	getBuiltInProfileChoices,
+	getCompatExample,
 	maskSecret,
 } from "./ui-helpers.ts";
 import type { ClientHeaderProfileId, ProviderDraft, StoredRequestHeaderProfile } from "../types.ts";
+
+// modelOverrides 是「按模型 ID 覆盖字段」的免费 JSON；给个能直接改的完整例子比只列键名有用。
+const MODEL_OVERRIDES_EXAMPLE = `{"a/b":{"promptCache":{"short":300,"long":3600}}}`;
 
 interface FieldRow {
 	id: string;
@@ -268,11 +272,14 @@ async function editField(
 		return;
 	}
 	if (fieldId === "compat") {
+		const example = getCompatExample(draft.api);
 		const outcome = await editJsonObjectField(
 			ctx,
 			t("高级 compat"),
 			draft.compat,
-			t("compat 常用键：supportsMidConvoEffort、allowedFallbackModels、supportsMaxOutputTokens、vllmPriority。"),
+			example
+				? t("compat 只填已在真实上游验证过的差异项；{api} 示例：{example}", { api: formatApiShort(draft.api), example })
+				: t("compat 只填已在真实上游验证过的差异项；当前协议（{api}）没有可用的 compat 项，请保持留空。", { api: formatApiShort(draft.api) }),
 		);
 		if (outcome.action === "save") draft.compat = outcome.value;
 		return;
@@ -282,7 +289,7 @@ async function editField(
 			ctx,
 			t("接入级 modelOverrides"),
 			draft.modelOverrides,
-			t("modelOverrides 按模型 ID 覆盖字段，例如 a/b 的 promptCache.long。"),
+			t("modelOverrides 按模型 ID 覆盖字段，例如给 a/b 补 promptCache：{example}", { example: MODEL_OVERRIDES_EXAMPLE }),
 		);
 		if (outcome.action === "save") draft.modelOverrides = outcome.value;
 		return;

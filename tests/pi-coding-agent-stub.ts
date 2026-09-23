@@ -37,6 +37,14 @@ export class ModelRegistry {
 	constructor(_runtime: unknown) {}
 }
 
+// 只有「重新拉取模型列表 / 连通性自检」会真的用到 BorderedLoader；
+// 单测不发起真实请求，这里提供构造、取消回调与信号所需的形状。
+export class BorderedLoader {
+	onAbort?: () => void;
+	readonly signal: AbortSignal = new AbortController().signal;
+	constructor(..._args: unknown[]) {}
+}
+
 export class SettingsManager {
 	static create(): never {
 		throw new Error("当前测试不应访问 SettingsManager");

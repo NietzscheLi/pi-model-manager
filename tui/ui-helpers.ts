@@ -73,6 +73,14 @@ export function formatApiShort(api: ApiKind): string {
 	return api;
 }
 
+// compat 是带协议的差异化覆盖；示例必须跟着协议走，否则用户照抄会写进不存在的字段。
+// 无例可举（Gemini）用 undefined 表示该协议没有已知 compat 项。
+export function getCompatExample(api: ApiKind): string | undefined {
+	if (api === "anthropic-messages") return `{"supportsMidConvoEffort":true}`;
+	if (api === "openai-responses") return `{"supportsDeveloperRole":false}`;
+	return api === "openai-completions" ? `{"maxTokensField":"max_tokens"}` : undefined;
+}
+
 function getAuthKind(apiKey: string | undefined): string {
 	const status = getAuthStatusText(apiKey);
 	if (status === "no apiKey") return "auth?";
